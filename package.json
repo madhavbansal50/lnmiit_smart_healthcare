@@ -1,0 +1,27 @@
+{
+  "name": "lnmiit-smart-healthcare-system",
+  "version": "1.0.0",
+  "description": "IoT-based Smart Healthcare Monitoring and Patient Management System for LNMIIT Jaipur",
+  "scripts": {
+    "setup:backend": "cd backend && npm install && npx prisma generate && npx prisma db push && node prisma/seed.js",
+    "setup:frontend": "cd frontend && npm install",
+    "setup": "npm run setup:backend && npm run setup:frontend",
+    "start:backend": "cd backend && node src/server.js",
+    "start:frontend": "cd frontend && npm run dev",
+    "seed": "cd backend && node prisma/seed.js",
+    "build": "cd frontend && npm run build"
+  },
+  "keywords": [
+    "iot",
+    "healthcare",
+    "esp32",
+    "raspberry-pi",
+    "lnmiit",
+    "telemetry",
+    "react",
+    "socketio",
+    "prisma"
+  ],
+  "author": "LNMIIT Jaipur Mini-Project Team",
+  "license": "MIT"
+}
