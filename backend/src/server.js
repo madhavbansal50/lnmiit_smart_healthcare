@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 
 const simulator = require('./services/simulator');
 const { processSensorPacket } = require('./services/iotProcessor');
+const { initNodeRedClient, nodeRedClient } = require('./services/nodeRedClient');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -146,6 +147,12 @@ server.on('upgrade', (request, socket, head) => {
 // SOCKET.IO EVENT HANDLERS (For React Frontend & Socket.IO Clients)
 // =============================================================================
 io.on('connection', (socket) => {
+  // Send current Node-RED WebSocket status and latest sensor packet
+  socket.emit('NODERED_STATUS', nodeRedClient.getStatus());
+  if (nodeRedClient.lastData) {
+    socket.emit('SENSOR_DATA_UPDATE', nodeRedClient.lastData);
+  }
+
   // Direct sensor packet receiver if Node-RED sends via Socket.IO
   socket.on('IOT_SENSOR_DATA', async (data) => {
     try {
@@ -194,9 +201,13 @@ server.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(` LNMIIT Smart Healthcare System Backend Running`);
   console.log(` Server Port:      http://localhost:${PORT}`);
+  console.log(` Node-RED Bridge:  Connecting to ws://172.20.10.2:1880/ws/sensors`);
   console.log(` WebSocket Ingest: ws://localhost:${PORT}/ws/iot`);
   console.log(` Socket.IO:        Enabled on port ${PORT}`);
   console.log(` Database:         MongoDB (lnmiit_healthcare @ 127.0.0.1:27017)`);
-  console.log(` Mode:             WebSocket Ingest & MongoDB ODM`);
+  console.log(` Mode:             Node-RED Bridge & MongoDB ODM`);
   console.log(`====================================================`);
+
+  // Start Node-RED WebSocket Client bridge
+  initNodeRedClient(io);
 });

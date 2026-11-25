@@ -11,10 +11,26 @@ import {
   Search,
   PlusCircle,
   Stethoscope,
-  Heart
+  Radio,
+  Cpu,
+  Wifi,
+  WifiOff,
+  ExternalLink,
+  Zap,
+  Check,
+  Layers,
+  Thermometer,
+  Gauge
 } from 'lucide-react';
 import api from '../../services/api';
 import { VitalGaugeCard } from '../../components/common/VitalGaugeCard';
+import {
+  TemperatureSensorCard,
+  UltrasonicSensorCard,
+  ForceSensorCard
+} from '../../components/common/HardwareSensorCards';
+import { ESP32DeviceView } from '../../components/common/ESP32DeviceView';
+import { HardwareTelemetryChart } from '../../components/charts/HardwareTelemetryChart';
 import { RiskBadge, StatusBadge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { useVitals } from '../../context/VitalsContext';
@@ -24,6 +40,8 @@ export const DoctorDashboard = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchPatient, setSearchPatient] = useState('');
+  const [selectedDevice, setSelectedDevice] = useState('esp32_1'); // 'esp32_1' or 'esp32_2'
+  const [secondsSincePacket, setSecondsSincePacket] = useState(null);
 
   // Start Session Modal
   const [isStartModalOpen, setIsStartModalOpen] = useState(false);
@@ -38,7 +56,18 @@ export const DoctorDashboard = () => {
   const [endingSession, setEndingSession] = useState(null);
   const [sessionSummary, setSessionSummary] = useState('');
 
-  const { bed1Vitals, bed2Vitals, acknowledgeAlert } = useVitals();
+  const {
+    socketConnected,
+    esp32Data,
+    esp32History,
+    nodeRedStatus,
+    bed1Vitals,
+    bed2Vitals,
+    bed1History,
+    bed2History,
+    acknowledgeAlert
+  } = useVitals();
+
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -56,6 +85,37 @@ export const DoctorDashboard = () => {
   useEffect(() => {
     fetchDashboard();
   }, []);
+
+  // Active ESP32 device data & history
+  const activeEsp32 = selectedDevice === 'esp32_1' ? esp32Data?.esp32_1 : esp32Data?.esp32_2;
+  const activeEsp32History = selectedDevice === 'esp32_1' ? (esp32History?.esp32_1 || []) : (esp32History?.esp32_2 || []);
+
+  // Synchronized bed state (esp32_1 -> bed 1, esp32_2 -> bed 2)
+  const activeBed = selectedDevice === 'esp32_1' ? 1 : 2;
+  const currentVitals = activeBed === 1 ? bed1Vitals : bed2Vitals;
+  const currentHistory = activeBed === 1 ? bed1History : bed2History;
+
+  // Last packet timestamp
+  const lastPacketTimestamp = esp32Data?.timestamp || nodeRedStatus?.lastPacketTime || currentVitals?.timestamp;
+
+  // Stale packet detection (> 15 seconds)
+  useEffect(() => {
+    const updateTicker = () => {
+      if (lastPacketTimestamp) {
+        const diff = Math.max(0, Math.floor((Date.now() - new Date(lastPacketTimestamp).getTime()) / 1000));
+        setSecondsSincePacket(diff);
+      } else {
+        setSecondsSincePacket(null);
+      }
+    };
+    updateTicker();
+    const timer = setInterval(updateTicker, 1000);
+    return () => clearInterval(timer);
+  }, [lastPacketTimestamp]);
+
+  const isStale = secondsSincePacket !== null && secondsSincePacket > 15;
+  const isNodeRedConnected = nodeRedStatus?.connected;
+  const isLiveStream = !isStale && (esp32Data?.isLiveHardware || currentVitals?.isRealHardware);
 
   const openStartModal = async (bedNumber) => {
     setTargetBed(bedNumber);
@@ -186,45 +246,196 @@ export const DoctorDashboard = () => {
         </div>
       </div>
 
-      {/* Dual Bed Real-Time Monitoring Section */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-sky-600" />
-            Active Clinic Beds — Real-Time Telemetry
-          </h3>
-          <span className="text-xs text-slate-500 hidden sm:inline">
-            ESP32 Wi-Fi &bull; MQTT &bull; 2-Second Heartbeat
-          </span>
+      {/* Native Hardware Live Monitoring Section (Direct Node-RED WebSocket: ws://172.20.10.2:1880/ws/sensors) */}
+      <div className="space-y-4">
+        {/* Real-Time Telemetry & Connection Status Bar */}
+        <div className="bg-white rounded-3xl border border-slate-200/80 p-4 sm:p-5 shadow-sm space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Title & Hardware Indicators */}
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="p-2 rounded-xl bg-sky-100 text-sky-700">
+                  <Activity className="w-5 h-5 animate-pulse" />
+                </span>
+                <h3 className="text-lg font-extrabold text-slate-800">
+                  ESP32 Live Sensor Telemetry
+                </h3>
+
+                {/* Data Stream Mode: LIVE vs STALE */}
+                <span
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold border transition ${
+                    isLiveStream
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-sm'
+                      : 'bg-amber-50 text-amber-800 border-amber-300'
+                  }`}
+                >
+                  {isLiveStream ? (
+                    <>
+                      <Zap className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                      LIVE DATA STREAM
+                    </>
+                  ) : (
+                    <>
+                      <Cpu className="w-3.5 h-3.5 text-amber-600" />
+                      STALE / AWAITING PACKET
+                    </>
+                  )}
+                </span>
+              </div>
+
+              {/* Status Row */}
+              <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+                {/* 1. Node-RED WebSocket Status */}
+                <span className="flex items-center gap-1.5 font-medium">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      isNodeRedConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'
+                    }`}
+                  />
+                  <span className="text-slate-600">Node-RED WebSocket:</span>
+                  <strong className={isNodeRedConnected ? 'text-emerald-700' : 'text-red-600'}>
+                    {isNodeRedConnected ? 'Connected' : 'Disconnected'}
+                  </strong>
+                </span>
+
+                <span className="text-slate-300">&bull;</span>
+
+                {/* 2. Socket.IO Status */}
+                <span className="flex items-center gap-1.5 font-medium">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      socketConnected ? 'bg-emerald-500' : 'bg-red-500'
+                    }`}
+                  />
+                  <span className="text-slate-600">Socket.IO:</span>
+                  <strong className={socketConnected ? 'text-emerald-700' : 'text-red-600'}>
+                    {socketConnected ? 'Connected' : 'Disconnected'}
+                  </strong>
+                </span>
+
+                <span className="text-slate-300">&bull;</span>
+
+                {/* 3. Last Packet Timestamp */}
+                <span className="flex items-center gap-1 text-slate-500 font-mono">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  Last Packet: {secondsSincePacket !== null ? `${secondsSincePacket}s ago` : 'Waiting'}
+                </span>
+              </div>
+            </div>
+
+            {/* ESP32 Device Switcher Tabs & Links */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center p-1 bg-slate-100 rounded-2xl border border-slate-200">
+                <button
+                  onClick={() => setSelectedDevice('esp32_1')}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                    selectedDevice === 'esp32_1'
+                      ? 'bg-white text-sky-700 shadow-sm border border-slate-200/80'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-sky-500" />
+                  ESP32_1 {beds?.bed1?.session ? `(${beds.bed1.session.student?.user?.firstName || 'Bed 1'})` : '(Bed 1)'}
+                </button>
+
+                <button
+                  onClick={() => setSelectedDevice('esp32_2')}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                    selectedDevice === 'esp32_2'
+                      ? 'bg-white text-sky-700 shadow-sm border border-slate-200/80'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-purple-500" />
+                  ESP32_2 {beds?.bed2?.session ? `(${beds.bed2.session.student?.user?.firstName || 'Bed 2'})` : '(Bed 2)'}
+                </button>
+              </div>
+
+              <button
+                onClick={() => navigate('/admin/nodered')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition"
+                title="Open separate Node-RED debugging console"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                Node-RED Console
+              </button>
+
+              <button
+                onClick={() => navigate(`/doctor/monitoring?bed=${activeBed}`)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-sky-600 rounded-xl hover:bg-sky-700 shadow-sm shadow-sky-600/20 transition"
+              >
+                <Activity className="w-3.5 h-3.5" />
+                Live Monitor
+              </button>
+            </div>
+          </div>
+
+          {/* Active Patient Session Banner for Selected Bed */}
+          <div className="bg-slate-50/80 rounded-2xl p-3.5 border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs">
+                {selectedDevice === 'esp32_1' ? 'B1' : 'B2'}
+              </div>
+              <div>
+                {(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session) ? (
+                  <div>
+                    <span className="font-bold text-slate-800 text-sm">
+                      {(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session).student?.user?.firstName}{' '}
+                      {(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session).student?.user?.lastName}
+                    </span>
+                    <span className="text-xs text-slate-500 font-mono ml-2">
+                      ({(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session).student?.rollNumber})
+                    </span>
+                    <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">
+                      Chief Complaint: <em>{(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session).chiefComplaint || 'Continuous vitals telemetry'}</em>
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="font-semibold text-emerald-700 text-sm">Bed {activeBed} Available ({selectedDevice.toUpperCase()})</span>
+                    <p className="text-xs text-slate-500">Ready to admit patient for continuous sensor monitoring.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <RiskBadge level={currentVitals?.riskLevel || 'NORMAL'} size="md" />
+
+              {(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session) ? (
+                <button
+                  onClick={() => openEndModal(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-white hover:bg-red-50 hover:text-red-700 text-slate-700 border border-slate-200 transition"
+                >
+                  End Session
+                </button>
+              ) : (
+                <button
+                  onClick={() => openStartModal(activeBed)}
+                  className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-sky-600 hover:bg-sky-700 text-white shadow-sm transition"
+                >
+                  Start Session
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Bed 1 */}
-          <VitalGaugeCard
-            bedNumber={1}
-            vitals={bed1Vitals}
-            patient={beds?.bed1?.session ? {
-              name: `${beds.bed1.session.student?.user?.firstName} ${beds.bed1.session.student?.user?.lastName}`,
-              rollNumber: beds.bed1.session.student?.rollNumber
-            } : null}
-            isDoctorView={true}
-            onStartSession={() => openStartModal(1)}
-            onEndSession={() => openEndModal(beds?.bed1?.session)}
-          />
+        {/* 4 Sensor Cards (Temperature, Humidity, Distance, FSR / Force) for Active ESP32 */}
+        <ESP32DeviceView
+          deviceId={selectedDevice}
+          deviceName={selectedDevice === 'esp32_1' ? 'ESP32 Device 1 (Bed 1)' : 'ESP32 Device 2 (Bed 2)'}
+          data={activeEsp32}
+          history={activeEsp32History}
+          lastUpdated={lastPacketTimestamp}
+          isStale={isStale}
+        />
 
-          {/* Bed 2 */}
-          <VitalGaugeCard
-            bedNumber={2}
-            vitals={bed2Vitals}
-            patient={beds?.bed2?.session ? {
-              name: `${beds.bed2.session.student?.user?.firstName} ${beds.bed2.session.student?.user?.lastName}`,
-              rollNumber: beds.bed2.session.student?.rollNumber
-            } : null}
-            isDoctorView={true}
-            onStartSession={() => openStartModal(2)}
-            onEndSession={() => openEndModal(beds?.bed2?.session)}
-          />
-        </div>
+        {/* Dynamic Multi-Channel Real-Time Telemetry Chart */}
+        <HardwareTelemetryChart
+          data={activeEsp32History.length > 0 ? activeEsp32History : currentHistory}
+          title={`${selectedDevice === 'esp32_1' ? 'ESP32 Device 1' : 'ESP32 Device 2'} Real-Time Multi-Channel Waveform`}
+        />
       </div>
 
       {/* Two Columns: Recent Patients & Recent Active Alerts */}

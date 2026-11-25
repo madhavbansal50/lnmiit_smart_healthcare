@@ -14,9 +14,6 @@ export const AppLayout = () => {
       {/* Main Healthcare Navigation Bar */}
       <Navbar />
 
-      {/* Emergency Modal Notification */}
-      <EmergencyModal />
-
       {/* Body Layout: Sidebar + Main Content */}
       <div className="flex-1 flex overflow-hidden">
         <Sidebar />

@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import {
   Thermometer,
+  Droplets,
   Radio,
   Gauge,
   Clock,
@@ -32,29 +33,32 @@ export const HardwareTelemetryChart = ({
     forceMin: 5
   }
 }) => {
-  const [activeTab, setActiveTab] = useState('ALL'); // 'ALL', 'TEMP', 'DISTANCE', 'FORCE'
+  const [activeTab, setActiveTab] = useState('ALL'); // 'ALL', 'TEMP', 'HUMIDITY', 'DISTANCE', 'FORCE'
 
   // Normalize data safely
   const formattedData = data.map((d, index) => {
     const temp = d.temperature !== null && d.temperature !== undefined ? parseFloat(d.temperature) : null;
-    const distance = d.ultrasonicDistance !== null && d.ultrasonicDistance !== undefined ? parseFloat(d.ultrasonicDistance) : null;
-    const force = d.force !== null && d.force !== undefined ? parseFloat(d.force) : null;
+    const humidity = d.humidity !== null && d.humidity !== undefined ? parseFloat(d.humidity) : null;
+    const distance = (d.distance !== null && d.distance !== undefined ? parseFloat(d.distance) : null) ?? 
+                     (d.ultrasonicDistance !== null && d.ultrasonicDistance !== undefined ? parseFloat(d.ultrasonicDistance) : null);
+    const force = (d.fsr !== null && d.fsr !== undefined ? parseFloat(d.fsr) : null) ?? 
+                  (d.force !== null && d.force !== undefined ? parseFloat(d.force) : null);
 
     // Relative normalization for "ALL" tab view (0 - 100% scale)
-    // Temp: 30°C -> 0%, 42°C -> 100%
-    const normTemp = temp !== null ? Math.max(0, Math.min(100, ((temp - 30) / 12) * 100)) : null;
-    // Distance: 0cm -> 0%, 120cm -> 100%
-    const normDistance = distance !== null ? Math.max(0, Math.min(100, (distance / 120) * 100)) : null;
-    // Force: 0N -> 0%, 100N -> 100%
-    const normForce = force !== null ? Math.max(0, Math.min(100, force)) : null;
+    const normTemp = temp !== null ? Math.max(0, Math.min(100, ((temp - 20) / 25) * 100)) : null;
+    const normHumidity = humidity !== null ? Math.max(0, Math.min(100, humidity)) : null;
+    const normDistance = distance !== null ? Math.max(0, Math.min(100, (distance / 300) * 100)) : null;
+    const normForce = force !== null ? Math.max(0, Math.min(100, (force / 400) * 100)) : null;
 
     return {
       index: index + 1,
       time: d.time || (d.timestamp ? new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : `T-${data.length - index}`),
       temperature: temp,
+      humidity: humidity,
       ultrasonicDistance: distance,
       force: force,
       normTemp: normTemp !== null ? parseFloat(normTemp.toFixed(1)) : null,
+      normHumidity: normHumidity !== null ? parseFloat(normHumidity.toFixed(1)) : null,
       normDistance: normDistance !== null ? parseFloat(normDistance.toFixed(1)) : null,
       normForce: normForce !== null ? parseFloat(normForce.toFixed(1)) : null
     };
@@ -145,6 +149,17 @@ export const HardwareTelemetryChart = ({
           >
             <Thermometer className="w-3.5 h-3.5 text-amber-500" />
             Temperature (°C)
+          </button>
+          <button
+            onClick={() => setActiveTab('HUMIDITY')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition ${
+              activeTab === 'HUMIDITY'
+                ? 'bg-cyan-50 text-cyan-700 shadow-sm border border-cyan-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Droplets className="w-3.5 h-3.5 text-cyan-500" />
+            Humidity (%)
           </button>
           <button
             onClick={() => setActiveTab('DISTANCE')}
@@ -240,6 +255,20 @@ export const HardwareTelemetryChart = ({
                 <Tooltip content={<CustomTooltip />} />
                 <ReferenceLine y={thresholds.tempMax} stroke="#ef4444" strokeDasharray="3 3" label={{ value: `Max (${thresholds.tempMax}°C)`, fill: '#ef4444', fontSize: 10 }} />
                 <Area type="monotone" dataKey="temperature" stroke="#f59e0b" strokeWidth={3} fillOpacity={1} fill="url(#tempGradient)" isAnimationActive={false} />
+              </AreaChart>
+            ) : activeTab === 'HUMIDITY' ? (
+              <AreaChart data={formattedData} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="humGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={10} domain={[0, 100]} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="humidity" stroke="#06b6d4" strokeWidth={3} fillOpacity={1} fill="url(#humGradient)" isAnimationActive={false} />
               </AreaChart>
             ) : activeTab === 'DISTANCE' ? (
               <AreaChart data={formattedData} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>

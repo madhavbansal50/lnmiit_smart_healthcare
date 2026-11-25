@@ -216,15 +216,7 @@ class SensorSimulator {
         if (this.io) {
           this.io.emit('VITALS_UPDATE', payload);
 
-          // Handle Emergency / Attention alert dispatch
-          if (evaluation.isEmergency && activeSession) {
-            const now = Date.now();
-            // Debounce emergency alert event every 15 seconds to avoid spamming
-            if (now - bedState.lastEmergencyAlertTime > 15000) {
-              bedState.lastEmergencyAlertTime = now;
-              await this.triggerEmergencyAlert(activeSession, payload, evaluation);
-            }
-          }
+          // Emergency modal dispatch disabled per user request
         }
       }
     } catch (err) {

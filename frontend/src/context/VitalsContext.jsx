@@ -18,9 +18,65 @@ export const VitalsProvider = ({ children }) => {
 
   // Scenario states
   const [scenarios, setScenarios] = useState({ 1: 'NORMAL', 2: 'NORMAL' });
+  const [socketConnected, setSocketConnected] = useState(false);
+
+  // Raw ESP32 Dual Sensor State from Node-RED WebSocket bridge
+  const [esp32Data, setEsp32Data] = useState({
+    esp32_1: null,
+    esp32_2: null,
+    timestamp: null,
+    isLiveHardware: false
+  });
+
+  const [esp32History, setEsp32History] = useState({
+    esp32_1: [],
+    esp32_2: []
+  });
+
+  const [nodeRedStatus, setNodeRedStatus] = useState({
+    connected: false,
+    url: 'ws://172.20.10.2:1880/ws/sensors',
+    lastPacketTime: null
+  });
 
   useEffect(() => {
     const socket = getSocket();
+    setSocketConnected(socket.connected);
+
+    const onConnect = () => setSocketConnected(true);
+    const onDisconnect = () => setSocketConnected(false);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+
+    const handleSensorDataUpdate = (data) => {
+      if (!data) return;
+      const timeStr = new Date(data.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setEsp32Data(data);
+
+      if (data.esp32_1) {
+        setEsp32History((prev) => ({
+          ...prev,
+          esp32_1: [...prev.esp32_1.slice(-29), { ...data.esp32_1, time: timeStr, timestamp: data.timestamp }]
+        }));
+      }
+
+      if (data.esp32_2) {
+        setEsp32History((prev) => ({
+          ...prev,
+          esp32_2: [...prev.esp32_2.slice(-29), { ...data.esp32_2, time: timeStr, timestamp: data.timestamp }]
+        }));
+      }
+    };
+
+    const handleNodeRedStatus = (status) => {
+      if (status) {
+        setNodeRedStatus((prev) => ({ ...prev, ...status }));
+      }
+    };
+
+    socket.on('SENSOR_DATA_UPDATE', handleSensorDataUpdate);
+    socket.on('NODERED_STATUS', handleNodeRedStatus);
 
     const handleVitalsUpdate = (payload) => {
       const timeStr = new Date(payload.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -45,8 +101,7 @@ export const VitalsProvider = ({ children }) => {
     };
 
     const handleEmergencyAlert = (alert) => {
-      console.warn('[EMERGENCY ALERT RECEIVED]', alert);
-      setCurrentEmergencyAlert(alert);
+      // Record alert in table/badge without displaying an intrusive full-screen modal
       setActiveAlerts((prev) => [alert, ...prev.slice(0, 19)]);
     };
 
@@ -59,6 +114,10 @@ export const VitalsProvider = ({ children }) => {
     socket.on('SCENARIO_CHANGED', handleScenarioChanged);
 
     return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('SENSOR_DATA_UPDATE', handleSensorDataUpdate);
+      socket.off('NODERED_STATUS', handleNodeRedStatus);
       socket.off('VITALS_UPDATE', handleVitalsUpdate);
       socket.off('EMERGENCY_ALERT', handleEmergencyAlert);
       socket.off('SCENARIO_CHANGED', handleScenarioChanged);
@@ -93,6 +152,10 @@ export const VitalsProvider = ({ children }) => {
   return (
     <VitalsContext.Provider
       value={{
+        socketConnected,
+        esp32Data,
+        esp32History,
+        nodeRedStatus,
         bed1Vitals,
         bed2Vitals,
         bed1History,

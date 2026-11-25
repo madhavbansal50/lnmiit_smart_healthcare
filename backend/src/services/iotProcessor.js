@@ -27,6 +27,9 @@ function normalizeSensorPayload(body) {
   // 3. Force Sensor (N)
   let force = source.force ?? source.forceValue ?? source.pressure ?? source.weight ?? source.fsr ?? source.load;
 
+  // 4. Humidity (%)
+  let humidity = source.humidity ?? source.hum ?? source.relativeHumidity;
+
   // Optional legacy fallbacks
   let heartRate = source.heartRate ?? source.heart_rate ?? source.bpm ?? source.pulse;
   let spo2 = source.spo2 ?? source.spO2 ?? source.oxygen ?? source.bloodOxygen;
@@ -48,6 +51,7 @@ function normalizeSensorPayload(body) {
     temperature: temperature !== undefined && temperature !== null ? parseFloat(parseFloat(temperature).toFixed(2)) : null,
     ultrasonicDistance: ultrasonicDistance !== undefined && ultrasonicDistance !== null ? parseFloat(parseFloat(ultrasonicDistance).toFixed(1)) : null,
     force: force !== undefined && force !== null ? parseFloat(parseFloat(force).toFixed(2)) : null,
+    humidity: humidity !== undefined && humidity !== null ? parseFloat(parseFloat(humidity).toFixed(1)) : null,
     heartRate: heartRate !== undefined && heartRate !== null ? parseFloat(heartRate) : null,
     spo2: spo2 !== undefined && spo2 !== null ? parseFloat(spo2) : null,
     bedNumber: parseInt(bedNumber, 10) || 1,
@@ -74,28 +78,18 @@ function evaluateHardwareSensors({ temperature, ultrasonicDistance, force }) {
 
   // 1. Temperature Evaluation (°C)
   if (temperature !== null && !isNaN(temperature)) {
-    if (temperature > 38.5) {
-      triggers.push(`High Temperature Alert: ${temperature}°C (>38.5°C threshold)`);
+    if (temperature > 39.5) {
+      triggers.push(`High Temperature Alert: ${temperature}°C (>39.5°C threshold)`);
       sensorStatus.temperature = 'CRITICAL';
-      riskLevel = 'EMERGENCY';
-      riskScore = Math.max(riskScore, 85);
-      isEmergency = true;
-    } else if (temperature > 37.5) {
-      triggers.push(`Elevated Temperature: ${temperature}°C (>37.5°C threshold)`);
+      riskLevel = 'ATTENTION';
+      riskScore = Math.max(riskScore, 75);
+    } else if (temperature > 38.0) {
+      triggers.push(`Elevated Temperature: ${temperature}°C (>38.0°C threshold)`);
       sensorStatus.temperature = 'WARNING';
       if (riskLevel !== 'EMERGENCY') riskLevel = 'ATTENTION';
-      riskScore = Math.max(riskScore, 50);
-    } else if (temperature < 35.0) {
-      triggers.push(`Low Temperature Alert: ${temperature}°C (<35.0°C threshold)`);
-      sensorStatus.temperature = 'CRITICAL';
-      riskLevel = 'EMERGENCY';
-      riskScore = Math.max(riskScore, 80);
-      isEmergency = true;
-    } else if (temperature < 36.0) {
-      triggers.push(`Mildly Low Temperature: ${temperature}°C`);
-      sensorStatus.temperature = 'WARNING';
-      if (riskLevel !== 'EMERGENCY') riskLevel = 'ATTENTION';
-      riskScore = Math.max(riskScore, 40);
+      riskScore = Math.max(riskScore, 45);
+    } else {
+      sensorStatus.temperature = 'NORMAL';
     }
   }
 
@@ -171,6 +165,7 @@ async function processSensorPacket(rawPayload, io, transportName = 'WebSocket') 
     temperature,
     ultrasonicDistance,
     force,
+    humidity,
     heartRate,
     spo2,
     bedNumber,
@@ -318,9 +313,7 @@ async function processSensorPacket(rawPayload, io, transportName = 'WebSocket') 
       lastSeen: timestamp.toISOString()
     });
 
-    if (evaluation.isEmergency && activeSession) {
-      await simulator.triggerEmergencyAlert(activeSession, broadcastPayload, evaluation);
-    }
+    // Emergency modal triggers disabled per user request to prevent popup spam
   }
 
   console.log(

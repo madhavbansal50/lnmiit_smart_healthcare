@@ -139,9 +139,7 @@ router.post('/edge/vitals', async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       io.emit('VITALS_UPDATE', payload);
-      if (evaluation.isEmergency && activeSession) {
-        await simulator.triggerEmergencyAlert(activeSession, payload, evaluation);
-      }
+      // Emergency alert modal dispatch disabled to prevent continuous popups
     }
 
     return res.status(200).json({ message: 'Vitals processed', evaluation });
