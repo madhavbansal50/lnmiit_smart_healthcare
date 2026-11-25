@@ -212,9 +212,10 @@ class SensorSimulator {
           await this.saveReadingToDB(activeSession, payload, evaluation);
         }
 
-        // Broadcast live vitals update over Socket.IO
+        // Broadcast live vitals update over Socket.IO (Role-Based Stream Routing)
         if (this.io) {
-          this.io.emit('VITALS_UPDATE', payload);
+          this.io.to('role:doctor').to('role:admin').emit('VITALS_UPDATE', payload);
+          this.io.to(`bed:${bedState.bedNumber}`).emit('VITALS_UPDATE', payload);
 
           // Emergency modal dispatch disabled per user request
         }

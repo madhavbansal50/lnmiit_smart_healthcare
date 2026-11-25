@@ -7,7 +7,7 @@ import { getSocket } from '../../services/socket';
 
 export const Navbar = () => {
   const { user, logout } = useAuth();
-  const { bed1Vitals, bed2Vitals } = useVitals();
+  const { bed1Vitals, bed2Vitals, bed1Session, bed2Session } = useVitals();
 
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -114,11 +114,17 @@ export const Navbar = () => {
           {/* Bed 1 Indicator */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
             <span className="flex h-2 w-2 relative">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                bed1Vitals?.isEmergency ? 'bg-red-400' : 'bg-emerald-400'
-              }`} />
+              {bed1Vitals && (
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  bed1Vitals.isEmergency ? 'bg-red-400' : 'bg-emerald-400'
+                }`} />
+              )}
               <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                bed1Vitals?.isEmergency ? 'bg-red-500' : 'bg-emerald-500'
+                bed1Vitals
+                  ? (bed1Vitals.isEmergency ? 'bg-red-500' : 'bg-emerald-500')
+                  : bed1Session
+                  ? 'bg-amber-500 animate-pulse'
+                  : 'bg-slate-300'
               }`} />
             </span>
             <span className="font-semibold text-slate-700">Bed 1:</span>
@@ -129,21 +135,48 @@ export const Navbar = () => {
                     HW
                   </span>
                 )}
-                {bed1Vitals.heartRate?.toFixed(0)} BPM | {bed1Vitals.spo2?.toFixed(1)}% | {bed1Vitals.temperature?.toFixed(1)}°C
+                {bed1Session && (
+                  <span className="font-sans font-bold text-slate-800">
+                    {bed1Session.student?.user?.firstName || bed1Session.studentName || 'Admitted'}:
+                  </span>
+                )}
+                {bed1Vitals.temperature !== null && bed1Vitals.temperature !== undefined
+                  ? `${bed1Vitals.temperature.toFixed(1)}°C`
+                  : ''}
+                {bed1Vitals.humidity !== null && bed1Vitals.humidity !== undefined
+                  ? ` | ${bed1Vitals.humidity.toFixed(1)}%`
+                  : ''}
+                {bed1Vitals.heartRate ? ` | ${bed1Vitals.heartRate.toFixed(0)} BPM` : ''}
+              </span>
+            ) : bed1Session ? (
+              <span className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300">
+                  Occupied
+                </span>
+                <span className="font-medium text-slate-700 truncate max-w-[130px]">
+                  {bed1Session.student?.user?.firstName} {bed1Session.student?.user?.lastName || ''}
+                  {bed1Session.student?.rollNumber ? ` (${bed1Session.student.rollNumber})` : ''}
+                </span>
               </span>
             ) : (
-              <span className="text-slate-400">Connecting...</span>
+              <span className="text-slate-400">Available</span>
             )}
           </div>
 
           {/* Bed 2 Indicator */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
             <span className="flex h-2 w-2 relative">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                bed2Vitals?.isEmergency ? 'bg-red-400' : 'bg-emerald-400'
-              }`} />
+              {bed2Vitals && (
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  bed2Vitals.isEmergency ? 'bg-red-400' : 'bg-emerald-400'
+                }`} />
+              )}
               <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                bed2Vitals?.isEmergency ? 'bg-red-500' : 'bg-emerald-500'
+                bed2Vitals
+                  ? (bed2Vitals.isEmergency ? 'bg-red-500' : 'bg-emerald-500')
+                  : bed2Session
+                  ? 'bg-amber-500 animate-pulse'
+                  : 'bg-slate-300'
               }`} />
             </span>
             <span className="font-semibold text-slate-700">Bed 2:</span>
@@ -154,7 +187,28 @@ export const Navbar = () => {
                     HW
                   </span>
                 )}
-                {bed2Vitals.heartRate?.toFixed(0)} BPM | {bed2Vitals.spo2?.toFixed(1)}% | {bed2Vitals.temperature?.toFixed(1)}°C
+                {bed2Session && (
+                  <span className="font-sans font-bold text-slate-800">
+                    {bed2Session.student?.user?.firstName || bed2Session.studentName || 'Admitted'}:
+                  </span>
+                )}
+                {bed2Vitals.temperature !== null && bed2Vitals.temperature !== undefined
+                  ? `${bed2Vitals.temperature.toFixed(1)}°C`
+                  : ''}
+                {bed2Vitals.humidity !== null && bed2Vitals.humidity !== undefined
+                  ? ` | ${bed2Vitals.humidity.toFixed(1)}%`
+                  : ''}
+                {bed2Vitals.heartRate ? ` | ${bed2Vitals.heartRate.toFixed(0)} BPM` : ''}
+              </span>
+            ) : bed2Session ? (
+              <span className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300">
+                  Occupied
+                </span>
+                <span className="font-medium text-slate-700 truncate max-w-[130px]">
+                  {bed2Session.student?.user?.firstName} {bed2Session.student?.user?.lastName || ''}
+                  {bed2Session.student?.rollNumber ? ` (${bed2Session.student.rollNumber})` : ''}
+                </span>
               </span>
             ) : (
               <span className="text-slate-400">Available</span>

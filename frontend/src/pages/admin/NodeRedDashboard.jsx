@@ -7,8 +7,6 @@ import {
   Maximize2,
   Minimize2,
   Sliders,
-  AlertCircle,
-  CheckCircle,
   Layers,
   Terminal,
   Activity,
@@ -182,39 +180,6 @@ export const NodeRedDashboard = () => {
           sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
         />
       </div>
-
-      {/* Troubleshooting & Guide Box (Shown when not fullscreen) */}
-      {!isFullscreen && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-sky-50 border border-sky-200 rounded-2xl p-4 space-y-2 text-xs text-sky-900">
-            <div className="flex items-center gap-2 font-bold text-sky-950 text-sm">
-              <CheckCircle className="w-4 h-4 text-sky-600" />
-              Two Ways Node-RED Displays on this Website:
-            </div>
-            <ul className="list-disc pl-4 space-y-1 text-sky-800">
-              <li>
-                <strong>1. Embedded Dashboard (This Page):</strong> Displays your raw Node-RED gauges, charts, and buttons via direct live iFrame integration.
-              </li>
-              <li>
-                <strong>2. Native Healthcare UI (Automatic):</strong> When Node-RED sends data via <code className="font-mono text-sky-900">POST /api/iot/vitals</code>, our backend automatically broadcasts it to the <strong>Doctor Live Monitoring</strong> page with clinical waveforms, risk scoring, and triage badges.
-              </li>
-            </ul>
-          </div>
-
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-2 text-xs text-amber-900">
-            <div className="flex items-center gap-2 font-bold text-amber-950 text-sm">
-              <AlertCircle className="w-4 h-4 text-amber-600" />
-              If the frame displays "Refused to Connect" or Blank:
-            </div>
-            <ul className="list-disc pl-4 space-y-1 text-amber-800">
-              <li>Ensure Node-RED is running (<code className="font-mono text-amber-950">node-red</code> in terminal).</li>
-              <li>Make sure <code className="font-mono text-amber-950">node-red-dashboard</code> palette is installed on Node-RED.</li>
-              <li>If testing Raspberry Pi from a PC browser, verify both devices are on the same Wi-Fi/LAN.</li>
-              <li>You can also click <strong>"Open in Tab"</strong> above to launch directly.</li>
-            </ul>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

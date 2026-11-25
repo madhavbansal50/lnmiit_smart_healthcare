@@ -106,8 +106,8 @@ export const StudentPrescriptions = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {p.items?.map((it) => (
-                      <tr key={it.id} className="text-slate-700">
+                    {((Array.isArray(p.items) ? p.items : (Array.isArray(p.items?.create) ? p.items.create : []))).map((it, idx) => (
+                      <tr key={it.id || idx} className="text-slate-700">
                         <td className="py-3 px-3 font-bold text-slate-900">{it.medicineName}</td>
                         <td className="py-3 px-3 font-semibold text-slate-700">{it.dosage}</td>
                         <td className="py-3 px-3 text-slate-600">{it.frequency}</td>

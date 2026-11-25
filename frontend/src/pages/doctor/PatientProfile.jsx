@@ -455,8 +455,8 @@ export const PatientProfile = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {p.items?.map((item) => (
-                      <tr key={item.id} className="text-slate-700">
+                    {(Array.isArray(p.items) ? p.items : (Array.isArray(p.items?.create) ? p.items.create : [])).map((item, idx) => (
+                      <tr key={item.id || idx} className="text-slate-700">
                         <td className="py-2 font-bold text-slate-800">{item.medicineName}</td>
                         <td className="py-2">{item.dosage}</td>
                         <td className="py-2">{item.frequency}</td>

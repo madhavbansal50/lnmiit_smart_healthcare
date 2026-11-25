@@ -64,7 +64,7 @@ function normalizeSensorPayload(body) {
 /**
  * Evaluates hardware telemetry against operational thresholds.
  */
-function evaluateHardwareSensors({ temperature, ultrasonicDistance, force }) {
+function evaluateHardwareSensors({ temperature, ultrasonicDistance, force, humidity }) {
   const triggers = [];
   let riskLevel = 'NORMAL';
   let riskScore = 0;
@@ -73,7 +73,8 @@ function evaluateHardwareSensors({ temperature, ultrasonicDistance, force }) {
   const sensorStatus = {
     temperature: 'NORMAL',
     ultrasonic: 'NORMAL',
-    force: 'NORMAL'
+    force: 'NORMAL',
+    humidity: 'NORMAL'
   };
 
   // 1. Temperature Evaluation (°C)
@@ -129,6 +130,19 @@ function evaluateHardwareSensors({ temperature, ultrasonicDistance, force }) {
     }
   }
 
+  // 4. Humidity Sensor Evaluation (%)
+  if (humidity !== null && !isNaN(humidity)) {
+    if (humidity > 70) {
+      triggers.push(`High Humidity Alert: ${humidity}% (>70% threshold)`);
+      sensorStatus.humidity = 'WARNING';
+    } else if (humidity < 30) {
+      triggers.push(`Low Humidity Warning: ${humidity}% (<30% threshold)`);
+      sensorStatus.humidity = 'WARNING';
+    } else {
+      sensorStatus.humidity = 'NORMAL';
+    }
+  }
+
   // Correlation: If Ultrasonic indicates > 80cm AND Force < 8N -> Confirmed Out of Bed
   if (ultrasonicDistance > 80 && force !== null && force < 8) {
     triggers.push('Confirmed Bed Vacancy (Distance > 80cm + Force < 8N)');
@@ -138,7 +152,7 @@ function evaluateHardwareSensors({ temperature, ultrasonicDistance, force }) {
 
   const riskExplanation = triggers.length > 0 
     ? triggers.join('; ') 
-    : 'All hardware sensor readings (Temperature, Ultrasonic Proximity, Force) are within standard operational limits.';
+    : 'All hardware sensor readings (Temperature, Humidity, Ultrasonic Proximity, Force) are within standard operational limits.';
 
   return {
     riskLevel,
@@ -223,7 +237,8 @@ async function processSensorPacket(rawPayload, io, transportName = 'WebSocket') 
   const evaluation = evaluateHardwareSensors({
     temperature: finalTemp,
     ultrasonicDistance: finalDistance,
-    force: finalForce
+    force: finalForce,
+    humidity: humidity !== null && humidity !== undefined ? parseFloat(humidity) : null
   });
 
   // 4. Construct Uniform Broadcast Payload
@@ -233,6 +248,7 @@ async function processSensorPacket(rawPayload, io, transportName = 'WebSocket') 
     temperature: finalTemp,
     ultrasonicDistance: finalDistance,
     force: finalForce,
+    humidity: humidity !== null && humidity !== undefined ? parseFloat(parseFloat(humidity).toFixed(1)) : null,
     heartRate: heartRate !== null ? heartRate : null,
     spo2: spo2 !== null ? spo2 : null,
     sensorStatus: evaluation.sensorStatus,
@@ -270,6 +286,7 @@ async function processSensorPacket(rawPayload, io, transportName = 'WebSocket') 
         temperature: finalTemp,
         ultrasonicDistance: finalDistance,
         force: finalForce,
+        humidity: humidity !== null && humidity !== undefined ? parseFloat(parseFloat(humidity).toFixed(1)) : null,
         heartRate: heartRate,
         spo2: spo2,
         riskLevel: evaluation.riskLevel,
@@ -302,9 +319,13 @@ async function processSensorPacket(rawPayload, io, transportName = 'WebSocket') 
   // 6. Signal Simulator to Yield to Live Hardware
   simulator.recordHardwareReading(bedNumber, broadcastPayload);
 
-  // 7. Emit via Socket.IO to React Frontend
+  // 7. Emit via Socket.IO to React Frontend (Role-Based Stream Routing)
   if (io) {
-    io.emit('VITALS_UPDATE', broadcastPayload);
+    // Doctors and Admins receive all vitals telemetry across all beds
+    io.to('role:doctor').to('role:admin').emit('VITALS_UPDATE', broadcastPayload);
+    // Specific bed room receives this bed's telemetry (verified assigned students only)
+    io.to(`bed:${bedNumber}`).emit('VITALS_UPDATE', broadcastPayload);
+
     io.emit('DEVICE_STATUS', {
       deviceId,
       bedNumber,

@@ -10,7 +10,17 @@ const router = express.Router();
 // GET /api/students/me - Current student's own health overview
 router.get('/me', requireAuth, async (req, res) => {
   try {
-    const studentProfile = req.user.studentProfile;
+    let studentProfile = req.user.studentProfile;
+    let isStaffPreview = false;
+
+    // If staff (Doctor or Admin) visits student portal, provide active sample student
+    if (!studentProfile && (req.user.role === 'ADMIN' || req.user.role === 'DOCTOR')) {
+      studentProfile = await prisma.studentProfile.findFirst({
+        include: { user: true }
+      });
+      isStaffPreview = true;
+    }
+
     if (!studentProfile) {
       return res.status(404).json({ message: 'Student profile not associated with this account.' });
     }
@@ -72,11 +82,30 @@ router.get('/me', requireAuth, async (req, res) => {
     // Generate personalized insights
     const insights = await generatePersonalizedInsights(studentProfile.id);
 
+    // Fetch student's real last recorded hardware vitals reading from database
+    const lastRecordedVitals = await prisma.vitalsReading.findFirst({
+      where: { studentId: studentProfile.id },
+      orderBy: { timestamp: 'desc' }
+    });
+
+    let lastSessionInfo = null;
+    if (lastRecordedVitals?.sessionId) {
+      lastSessionInfo = await prisma.monitoringSession.findUnique({
+        where: { id: lastRecordedVitals.sessionId },
+        include: { doctor: { include: { user: true } } }
+      });
+    }
+
     return res.json({
       profile: student,
       activeSession,
       liveVitals,
-      insights
+      lastRecordedVitals: lastRecordedVitals ? {
+        ...lastRecordedVitals,
+        session: lastSessionInfo
+      } : null,
+      insights,
+      isStaffPreview
     });
   } catch (err) {
     console.error('Fetch student me error:', err);

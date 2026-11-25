@@ -39,6 +39,27 @@ export const VitalsProvider = ({ children }) => {
     lastPacketTime: null
   });
 
+  // Role-Based Student Assigned Bed (null if not in active session)
+  const [assignedBed, setAssignedBed] = useState(null);
+
+  // Active Sessions across all beds
+  const [activeSessions, setActiveSessions] = useState([]);
+
+  const fetchActiveSessions = async () => {
+    try {
+      const res = await api.get('/sessions/active');
+      setActiveSessions(res.data || []);
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    fetchActiveSessions();
+    const interval = setInterval(fetchActiveSessions, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     const socket = getSocket();
     setSocketConnected(socket.connected);
@@ -52,7 +73,12 @@ export const VitalsProvider = ({ children }) => {
     const handleSensorDataUpdate = (data) => {
       if (!data) return;
       const timeStr = new Date(data.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setEsp32Data(data);
+      setEsp32Data((prev) => ({
+        ...prev,
+        ...data,
+        esp32_1: data.esp32_1 !== undefined ? data.esp32_1 : prev.esp32_1,
+        esp32_2: data.esp32_2 !== undefined ? data.esp32_2 : prev.esp32_2
+      }));
 
       if (data.esp32_1) {
         setEsp32History((prev) => ({
@@ -75,8 +101,22 @@ export const VitalsProvider = ({ children }) => {
       }
     };
 
+    const handleAssignedBed = (info) => {
+      if (info && info.bedNumber) {
+        setAssignedBed(info.bedNumber);
+        fetchActiveSessions();
+      }
+    };
+
+    const handleNoActiveBed = () => {
+      setAssignedBed(null);
+      fetchActiveSessions();
+    };
+
     socket.on('SENSOR_DATA_UPDATE', handleSensorDataUpdate);
     socket.on('NODERED_STATUS', handleNodeRedStatus);
+    socket.on('ASSIGNED_BED', handleAssignedBed);
+    socket.on('NO_ACTIVE_BED', handleNoActiveBed);
 
     const handleVitalsUpdate = (payload) => {
       const timeStr = new Date(payload.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -112,15 +152,21 @@ export const VitalsProvider = ({ children }) => {
     socket.on('VITALS_UPDATE', handleVitalsUpdate);
     socket.on('EMERGENCY_ALERT', handleEmergencyAlert);
     socket.on('SCENARIO_CHANGED', handleScenarioChanged);
+    socket.on('SESSION_STARTED', fetchActiveSessions);
+    socket.on('SESSION_ENDED', fetchActiveSessions);
 
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('SENSOR_DATA_UPDATE', handleSensorDataUpdate);
       socket.off('NODERED_STATUS', handleNodeRedStatus);
+      socket.off('ASSIGNED_BED', handleAssignedBed);
+      socket.off('NO_ACTIVE_BED', handleNoActiveBed);
       socket.off('VITALS_UPDATE', handleVitalsUpdate);
       socket.off('EMERGENCY_ALERT', handleEmergencyAlert);
       socket.off('SCENARIO_CHANGED', handleScenarioChanged);
+      socket.off('SESSION_STARTED', fetchActiveSessions);
+      socket.off('SESSION_ENDED', fetchActiveSessions);
     };
   }, []);
 
@@ -149,13 +195,21 @@ export const VitalsProvider = ({ children }) => {
     }
   };
 
+  const bed1Session = activeSessions.find((s) => s.bedNumber === 1 && s.status === 'ACTIVE') || null;
+  const bed2Session = activeSessions.find((s) => s.bedNumber === 2 && s.status === 'ACTIVE') || null;
+
   return (
     <VitalsContext.Provider
       value={{
         socketConnected,
+        assignedBed,
         esp32Data,
         esp32History,
         nodeRedStatus,
+        activeSessions,
+        bed1Session,
+        bed2Session,
+        fetchActiveSessions,
         bed1Vitals,
         bed2Vitals,
         bed1History,

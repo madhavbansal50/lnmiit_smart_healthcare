@@ -5,6 +5,25 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+// GET /api/prescriptions - List all issued prescriptions (Doctors & Admin)
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    const prescriptions = await prisma.prescription.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        student: { include: { user: true } },
+        doctor: { include: { user: true } },
+        session: true
+      }
+    });
+
+    return res.json(prescriptions);
+  } catch (err) {
+    console.error('Fetch all prescriptions error:', err);
+    return res.status(500).json({ message: 'Failed to fetch prescriptions' });
+  }
+});
+
 // GET /api/prescriptions/student/:studentId
 router.get('/student/:studentId', requireAuth, async (req, res) => {
   try {
@@ -60,6 +79,18 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/prescriptions/:id (Doctors & Admin)
+router.delete('/:id', requireAuth, requireRole('DOCTOR', 'ADMIN'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.prescription.delete({ where: { id } });
+    return res.json({ message: 'Prescription deleted successfully' });
+  } catch (err) {
+    console.error('Delete prescription error:', err);
+    return res.status(500).json({ message: 'Failed to delete prescription' });
+  }
+});
+
 // POST /api/prescriptions (Doctors & Admin)
 router.post('/', requireAuth, requireRole('DOCTOR', 'ADMIN'), async (req, res) => {
   try {
@@ -99,15 +130,13 @@ router.post('/', requireAuth, requireRole('DOCTOR', 'ADMIN'), async (req, res) =
         diagnosis: d.diagnosis || null,
         notes: d.notes || null,
         status: 'ACTIVE',
-        items: {
-          create: d.items.map(item => ({
-            medicineName: item.medicineName,
-            dosage: item.dosage,
-            frequency: item.frequency,
-            duration: item.duration,
-            instructions: item.instructions || 'As advised'
-          }))
-        }
+        items: d.items.map(item => ({
+          medicineName: item.medicineName,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          duration: item.duration,
+          instructions: item.instructions || 'As advised'
+        }))
       },
       include: {
         doctor: { include: { user: true } },

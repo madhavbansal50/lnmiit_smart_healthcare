@@ -83,6 +83,10 @@ export const HardwareTelemetryChart = ({
                 displayVal = entry.payload.temperature ?? 'N/A';
                 unit = '°C';
                 labelName = 'Temperature';
+              } else if (entry.dataKey === 'humidity' || entry.dataKey === 'normHumidity') {
+                displayVal = entry.payload.humidity ?? 'N/A';
+                unit = '%';
+                labelName = 'Relative Humidity';
               } else if (entry.dataKey === 'ultrasonicDistance' || entry.dataKey === 'normDistance') {
                 displayVal = entry.payload.ultrasonicDistance ?? 'N/A';
                 unit = 'cm';
@@ -211,6 +215,7 @@ export const HardwareTelemetryChart = ({
                   wrapperStyle={{ fontSize: 11, paddingTop: 10 }}
                   formatter={(val) => {
                     if (val === 'normTemp') return 'Temperature (% of range)';
+                    if (val === 'normHumidity') return 'Relative Humidity (%)';
                     if (val === 'normDistance') return 'Ultrasonic Distance (% of range)';
                     if (val === 'normForce') return 'Force Pressure (% of range)';
                     return val;
@@ -220,6 +225,14 @@ export const HardwareTelemetryChart = ({
                   type="monotone"
                   dataKey="normTemp"
                   stroke="#f59e0b"
+                  strokeWidth={2.5}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="normHumidity"
+                  stroke="#06b6d4"
                   strokeWidth={2.5}
                   dot={false}
                   isAnimationActive={false}
@@ -306,10 +319,14 @@ export const HardwareTelemetryChart = ({
       </div>
 
       {/* Footer Legend / Channel Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 text-xs">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-100 text-xs">
         <div className="flex items-center gap-2 text-slate-600">
           <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
           <span><strong>Temperature:</strong> LM35 Sensor (°C)</span>
+        </div>
+        <div className="flex items-center gap-2 text-slate-600">
+          <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 shrink-0" />
+          <span><strong>Humidity:</strong> DHT / Ambient (%)</span>
         </div>
         <div className="flex items-center gap-2 text-slate-600">
           <span className="w-2.5 h-2.5 rounded-full bg-teal-600 shrink-0" />

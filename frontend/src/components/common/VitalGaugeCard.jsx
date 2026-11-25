@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Thermometer, Activity, Radio, Gauge, AlertCircle, Clock, ShieldCheck, Cpu, Wifi, WifiOff } from 'lucide-react';
+import { Thermometer, Droplets, Activity, Radio, Gauge, AlertCircle, Clock, ShieldCheck, Cpu, Wifi, WifiOff } from 'lucide-react';
 import { RiskBadge } from './Badge';
 
 export const VitalGaugeCard = ({
@@ -23,6 +23,7 @@ export const VitalGaugeCard = ({
   const hasData = vitals !== null && vitals !== undefined;
   const isRealHardware = vitals?.source === 'HARDWARE' || vitals?.isRealHardware === true;
   const temp = vitals?.temperature;
+  const humidity = vitals?.humidity;
   const ultrasonic = vitals?.ultrasonicDistance;
   const force = vitals?.force;
   const riskLevel = vitals?.riskLevel || 'NORMAL';
@@ -120,7 +121,7 @@ export const VitalGaugeCard = ({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {/* 1. Temperature Sensor */}
               <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50/50 to-white border border-amber-100 relative overflow-hidden">
                 <div className="flex items-center justify-between text-xs text-slate-500 font-medium mb-1">
@@ -130,29 +131,45 @@ export const VitalGaugeCard = ({
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">LM35</span>
                 </div>
-                <div className="text-3xl font-extrabold text-slate-800 font-mono tracking-tight mt-1">
+                <div className="text-2xl sm:text-3xl font-extrabold text-slate-800 font-mono tracking-tight mt-1">
                   {formatTemp(temp)}
                 </div>
                 <div className="text-[11px] text-slate-400 mt-1">Normal: 35.5 - 37.5°C</div>
               </div>
 
-              {/* 2. Ultrasonic Sensor */}
+              {/* 2. Humidity Sensor */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-cyan-50/50 to-white border border-cyan-100 relative overflow-hidden">
+                <div className="flex items-center justify-between text-xs text-slate-500 font-medium mb-1">
+                  <span className="flex items-center gap-1.5 text-cyan-600 font-semibold">
+                    <Droplets className="w-4 h-4 text-cyan-500" />
+                    Humidity
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">DHT</span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-extrabold text-slate-800 font-mono tracking-tight mt-1">
+                  {humidity !== null && humidity !== undefined ? parseFloat(humidity).toFixed(1) : '--.-'}
+                  <span className="text-xs font-semibold text-slate-500 ml-1.5">%</span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">Ambient: 30 - 60%</div>
+              </div>
+
+              {/* 3. Ultrasonic Sensor */}
               <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50/50 to-white border border-emerald-100 relative overflow-hidden">
                 <div className="flex items-center justify-between text-xs text-slate-500 font-medium mb-1">
                   <span className="flex items-center gap-1.5 text-emerald-600 font-semibold">
                     <Radio className="w-4 h-4 text-emerald-500" />
-                    Ultrasonic Proximity
+                    Ultrasonic
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">HC-SR04</span>
                 </div>
-                <div className="text-3xl font-extrabold text-slate-800 font-mono tracking-tight mt-1">
+                <div className="text-2xl sm:text-3xl font-extrabold text-slate-800 font-mono tracking-tight mt-1">
                   {ultrasonic !== null && ultrasonic !== undefined ? parseFloat(ultrasonic).toFixed(1) : '--.-'}
                   <span className="text-xs font-semibold text-slate-500 ml-1.5">cm</span>
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">Target: &lt; 60 cm (In Bed)</div>
+                <div className="text-[11px] text-slate-400 mt-1">Target: &lt; 60 cm</div>
               </div>
 
-              {/* 3. Force / Pressure Sensor */}
+              {/* 4. Force / Pressure Sensor */}
               <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50/50 to-white border border-indigo-100 relative overflow-hidden">
                 <div className="flex items-center justify-between text-xs text-slate-500 font-medium mb-1">
                   <span className="flex items-center gap-1.5 text-indigo-600 font-semibold">
@@ -161,11 +178,11 @@ export const VitalGaugeCard = ({
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">FSR Mat</span>
                 </div>
-                <div className="text-3xl font-extrabold text-slate-800 font-mono tracking-tight mt-1">
+                <div className="text-2xl sm:text-3xl font-extrabold text-slate-800 font-mono tracking-tight mt-1">
                   {force !== null && force !== undefined ? parseFloat(force).toFixed(1) : '--.-'}
                   <span className="text-xs font-semibold text-slate-500 ml-1.5">N</span>
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">&gt; 20 N (Bed Occupied)</div>
+                <div className="text-[11px] text-slate-400 mt-1">&gt; 20 N (Occupied)</div>
               </div>
             </div>
 

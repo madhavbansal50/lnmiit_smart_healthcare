@@ -51,8 +51,20 @@ export const StudentDashboard = () => {
     );
   }
 
-  const { profile, activeSession, liveVitals, insights } = data || {};
-  const latestSession = profile?.sessions?.[0];
+  const { profile, activeSession, liveVitals, insights, isStaffPreview } = data || {};
+  const sessions = Array.isArray(profile?.sessions) ? profile.sessions : [];
+  const rawPrescriptions = Array.isArray(profile?.prescriptions) ? profile.prescriptions : [];
+  const prescriptions = rawPrescriptions.map((p) => {
+    const rawItems = p.items;
+    const items = Array.isArray(rawItems)
+      ? rawItems
+      : Array.isArray(rawItems?.create)
+      ? rawItems.create
+      : [];
+    return { ...p, items };
+  });
+
+  const latestSession = sessions[0];
   const latestVitalsReading = latestSession?.vitals?.[0];
   const isCurrentlyInBed = !!activeSession;
 
@@ -60,6 +72,18 @@ export const StudentDashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Staff Preview Banner */}
+      {isStaffPreview && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-semibold shadow-sm">
+          <span>
+            Staff Preview Mode: Signed in as <strong>{user?.firstName} {user?.lastName} ({user?.role})</strong>. Showing health portal preview for <strong>{profile?.user?.firstName || 'Aarav'} {profile?.user?.lastName || 'Patel'}</strong> (Roll: {profile?.rollNumber || '21UCC045'}).
+          </span>
+          <span className="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider">
+            Preview
+          </span>
+        </div>
+      )}
+
       {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-teal-600 via-sky-600 to-brand-700 rounded-3xl p-6 sm:p-8 text-white shadow-xl shadow-sky-600/15 flex flex-wrap items-center justify-between gap-6">
         <div>
@@ -67,10 +91,10 @@ export const StudentDashboard = () => {
             LNMIIT Student Health Portal
           </span>
           <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-2">
-            Welcome, {user?.firstName} {user?.lastName}
+            Welcome, {profile?.user?.firstName || user?.firstName || 'Student'} {profile?.user?.lastName || user?.lastName || ''}
           </h2>
           <p className="text-sky-100 text-xs sm:text-sm mt-1">
-            Roll: <strong>{profile?.rollNumber}</strong> &bull; {profile?.branch} &bull; Blood: <strong>{profile?.bloodGroup || 'B+'}</strong>
+            Roll: <strong>{profile?.rollNumber || '21UCC045'}</strong> &bull; {profile?.branch || 'CSE'} &bull; Blood: <strong>{profile?.bloodGroup || 'B+'}</strong>
           </p>
         </div>
 
@@ -238,19 +262,19 @@ export const StudentDashboard = () => {
           </div>
 
           <div className="space-y-3">
-            {profile?.sessions?.length === 0 ? (
+            {sessions.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-6">No previous visits recorded.</p>
             ) : (
-              profile?.sessions?.slice(0, 3).map((s) => (
-                <div key={s.id} className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1.5 text-xs">
+              sessions.slice(0, 3).map((s) => (
+                <div key={s.id || s._id} className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1.5 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-slate-800">
-                      {new Date(s.startTime).toLocaleDateString()} &bull; Bed {s.bedNumber}
+                      {s.startTime ? new Date(s.startTime).toLocaleDateString() : 'Recent'} &bull; Bed {s.bedNumber || 1}
                     </span>
-                    <RiskBadge level={s.finalRiskLevel} size="sm" />
+                    <RiskBadge level={s.finalRiskLevel || 'NORMAL'} size="sm" />
                   </div>
-                  <p className="text-slate-600 line-clamp-1"><strong>Complaint:</strong> {s.chiefComplaint}</p>
-                  <p className="text-slate-500 line-clamp-2">{s.summary}</p>
+                  <p className="text-slate-600 line-clamp-1"><strong>Complaint:</strong> {s.chiefComplaint || 'Continuous Telemetry'}</p>
+                  <p className="text-slate-500 line-clamp-2">{s.summary || 'Monitored within clinical safety boundaries.'}</p>
                 </div>
               ))
             )}
@@ -273,29 +297,36 @@ export const StudentDashboard = () => {
           </div>
 
           <div className="space-y-3">
-            {profile?.prescriptions?.length === 0 ? (
+            {prescriptions.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-6">No active prescriptions.</p>
             ) : (
-              profile?.prescriptions?.slice(0, 2).map((p) => (
-                <div key={p.id} className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800">
-                      By Dr. {p.doctor?.user?.firstName} {p.doctor?.user?.lastName}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {new Date(p.createdAt).toLocaleDateString()}
-                    </span>
+              prescriptions.slice(0, 2).map((p) => {
+                const docName = p.doctor?.user ? `${p.doctor.user.firstName} ${p.doctor.user.lastName}` : (p.doctorName || 'Medical Officer');
+                return (
+                  <div key={p.id || p._id} className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800">
+                        By Dr. {docName}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : ''}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {p.items?.length === 0 ? (
+                        <p className="text-slate-400 italic">No specific medications listed.</p>
+                      ) : (
+                        p.items?.map((it, idx) => (
+                          <div key={it.id || idx} className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
+                            <strong className="text-slate-800">{it.medicineName} ({it.dosage})</strong>
+                            <span className="text-slate-500">{it.frequency}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    {p.items?.map((it) => (
-                      <div key={it.id} className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-100">
-                        <strong className="text-slate-800">{it.medicineName} ({it.dosage})</strong>
-                        <span className="text-slate-500">{it.frequency}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

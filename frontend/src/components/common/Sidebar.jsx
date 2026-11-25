@@ -32,7 +32,6 @@ export const Sidebar = () => {
       { name: 'Dashboard', path: '/admin', icon: LayoutDashboard },
       { name: 'Doctors', path: '/admin/doctors', icon: UserCheck },
       { name: 'Students / Patients', path: '/admin/students', icon: Users },
-      { name: 'IoT Devices', path: '/admin/devices', icon: Cpu },
       { name: 'Node-RED Console', path: '/admin/nodered', icon: Radio },
       { name: 'Live Monitoring', path: '/doctor/monitoring', icon: Activity },
       { name: 'System Settings', path: '/admin/settings', icon: Settings }

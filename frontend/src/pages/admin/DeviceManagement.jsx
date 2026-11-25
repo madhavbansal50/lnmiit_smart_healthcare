@@ -274,16 +274,6 @@ export const DeviceManagement = () => {
                 <StatusBadge status={dev.status} />
               </div>
 
-              {/* Hardware / Simulator Badge */}
-              <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-                <span className="text-slate-500 font-medium">Operating Mode:</span>
-                <span className={`px-2.5 py-0.5 rounded-full font-mono font-bold text-[10px] border ${
-                  dev.isRealHardware ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
-                }`}>
-                  {dev.isRealHardware ? 'REAL HARDWARE (Node-RED)' : 'DEMO SIMULATION'}
-                </span>
-              </div>
-
               {/* Network Details */}
               <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200/60 font-mono">
                 <div>

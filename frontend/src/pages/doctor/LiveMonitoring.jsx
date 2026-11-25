@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Activity,
   Thermometer,
+  Droplets,
   Radio,
   Gauge,
   Play,
@@ -12,11 +13,9 @@ import {
   Sliders,
   CheckCircle,
   AlertTriangle,
-  ShieldAlert,
   Settings,
   RefreshCw,
   ExternalLink,
-  Info,
   Check,
   ChevronRight,
   Wifi,
@@ -25,6 +24,7 @@ import {
 import { useVitals } from '../../context/VitalsContext';
 import {
   TemperatureSensorCard,
+  HumiditySensorCard,
   UltrasonicSensorCard,
   ForceSensorCard
 } from '../../components/common/HardwareSensorCards';
@@ -33,7 +33,6 @@ import { Modal } from '../../components/common/Modal';
 import api from '../../services/api';
 
 export const LiveMonitoring = () => {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialBed = parseInt(searchParams.get('bed') || '1', 10);
 
@@ -56,19 +55,33 @@ export const LiveMonitoring = () => {
   const [thresholds, setThresholds] = useState(() => {
     try {
       const saved = localStorage.getItem('doctor_sensor_thresholds');
-      return saved
-        ? JSON.parse(saved)
-        : {
-            tempMax: 38.0,
-            tempMin: 35.5,
-            distanceMax: 90,
-            distanceMin: 10,
-            forceMin: 5
-          };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          tempMax: parsed.tempMax ?? 38.0,
+          tempMin: parsed.tempMin ?? 35.5,
+          humidityMax: parsed.humidityMax ?? 70,
+          humidityMin: parsed.humidityMin ?? 30,
+          distanceMax: parsed.distanceMax ?? 90,
+          distanceMin: parsed.distanceMin ?? 10,
+          forceMin: parsed.forceMin ?? 5
+        };
+      }
+      return {
+        tempMax: 38.0,
+        tempMin: 35.5,
+        humidityMax: 70,
+        humidityMin: 30,
+        distanceMax: 90,
+        distanceMin: 10,
+        forceMin: 5
+      };
     } catch (e) {
       return {
         tempMax: 38.0,
         tempMin: 35.5,
+        humidityMax: 70,
+        humidityMin: 30,
         distanceMax: 90,
         distanceMin: 10,
         forceMin: 5
@@ -79,7 +92,7 @@ export const LiveMonitoring = () => {
   const [tempThresholds, setTempThresholds] = useState(thresholds);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const { bed1Vitals, bed2Vitals, bed1History, bed2History } = useVitals();
+  const { bed1Vitals, bed2Vitals, bed1History, bed2History, esp32Data } = useVitals();
 
   const fetchActiveSessions = async () => {
     try {
@@ -99,16 +112,26 @@ export const LiveMonitoring = () => {
   const currentVitals = activeBed === 1 ? bed1Vitals : bed2Vitals;
   const currentHistory = activeBed === 1 ? bed1History : bed2History;
   const currentSession = activeSessions.find((s) => s.bedNumber === activeBed);
+  const currentRawEsp32 = activeBed === 1 ? esp32Data?.esp32_1 : esp32Data?.esp32_2;
 
   // Stale packet detection (> 15 seconds)
-  const lastPacketTime = currentVitals?.timestamp ? new Date(currentVitals.timestamp) : null;
+  const lastPacketTime = currentVitals?.timestamp 
+    ? new Date(currentVitals.timestamp) 
+    : (esp32Data?.timestamp ? new Date(esp32Data.timestamp) : null);
   const secondsSincePacket = lastPacketTime
     ? Math.max(0, Math.floor((Date.now() - lastPacketTime.getTime()) / 1000))
     : null;
   const isStale = secondsSincePacket !== null && secondsSincePacket > 15;
 
-  const isRealHardware = currentVitals?.isRealHardware === true || currentVitals?.source === 'HARDWARE';
+  const isRealHardware = currentVitals?.isRealHardware === true || currentVitals?.source === 'HARDWARE' || esp32Data?.isLiveHardware === true;
   const isNodeRedOnline = isRealHardware && !isStale;
+  const hasHardware = isRealHardware && !isStale && (currentVitals !== null || currentRawEsp32 !== null);
+
+  // Strict hardware-only readings with seamless sync across VITALS_UPDATE and SENSOR_DATA_UPDATE
+  const liveTemp = hasHardware ? (currentVitals?.temperature ?? currentRawEsp32?.temperature ?? null) : null;
+  const liveHumidity = hasHardware ? (currentVitals?.humidity ?? currentRawEsp32?.humidity ?? null) : null;
+  const liveDist = hasHardware ? (currentVitals?.ultrasonicDistance ?? currentVitals?.distance ?? currentRawEsp32?.distance ?? null) : null;
+  const liveForce = hasHardware ? (currentVitals?.force ?? currentVitals?.fsr ?? currentRawEsp32?.fsr ?? null) : null;
 
   const openStart = async () => {
     setErrorMsg('');
@@ -124,20 +147,23 @@ export const LiveMonitoring = () => {
     }
   };
 
-  const handleStart = async (e) => {
-    e.preventDefault();
+  const handleStart = async (e, force = false) => {
+    if (e && e.preventDefault) e.preventDefault();
     if (!selectedStudentId) return;
     try {
       await api.post('/sessions/start', {
         studentId: selectedStudentId,
         bedNumber: activeBed,
-        chiefComplaint: complaint || 'Continuous hardware sensor telemetry'
+        chiefComplaint: complaint || 'Continuous hardware sensor telemetry',
+        forceEndExisting: force
       });
       setIsStartModalOpen(false);
       setComplaint('');
+      setErrorMsg('');
       fetchActiveSessions();
     } catch (err) {
       setErrorMsg(err.response?.data?.message || 'Failed to start session');
+      fetchActiveSessions();
     }
   };
 
@@ -160,7 +186,7 @@ export const LiveMonitoring = () => {
     setThresholds(tempThresholds);
     try {
       localStorage.setItem('doctor_sensor_thresholds', JSON.stringify(tempThresholds));
-    } catch (e) {}
+    } catch (e) { }
     setSaveSuccess(true);
     setTimeout(() => {
       setSaveSuccess(false);
@@ -172,6 +198,8 @@ export const LiveMonitoring = () => {
     const defaults = {
       tempMax: 38.0,
       tempMin: 35.5,
+      humidityMax: 70,
+      humidityMin: 30,
       distanceMax: 90,
       distanceMin: 10,
       forceMin: 5
@@ -193,7 +221,7 @@ export const LiveMonitoring = () => {
             Doctor Live Hardware Telemetry Monitor
           </h2>
           <p className="text-sm text-slate-500">
-            Real-time multi-channel feed from Node-RED • Temperature, Ultrasonic Proximity, and Force sensors
+            Real-time multi-channel feed from Node-RED
           </p>
         </div>
 
@@ -210,34 +238,24 @@ export const LiveMonitoring = () => {
             Alert Thresholds
           </button>
 
-          <button
-            onClick={() => navigate('/admin/nodered')}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-sky-300 font-bold rounded-xl text-xs transition shadow-sm"
-          >
-            <Radio className="w-3.5 h-3.5 text-red-400 animate-pulse" />
-            Node-RED Console
-          </button>
-
           {/* Bed Switcher Tabs */}
           <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
             <button
               onClick={() => setActiveBed(1)}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
-                activeBed === 1
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${activeBed === 1
                   ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
                   : 'text-slate-600 hover:text-slate-900'
-              }`}
+                }`}
             >
               <span className={`h-2 w-2 rounded-full ${bed1Vitals?.isEmergency ? 'bg-red-500 animate-ping' : 'bg-emerald-500'}`} />
               Bed 1 Unit
             </button>
             <button
               onClick={() => setActiveBed(2)}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
-                activeBed === 2
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${activeBed === 2
                   ? 'bg-white text-sky-700 shadow-sm border border-slate-200'
                   : 'text-slate-600 hover:text-slate-900'
-              }`}
+                }`}
             >
               <span className={`h-2 w-2 rounded-full ${bed2Vitals?.isEmergency ? 'bg-red-500 animate-ping' : 'bg-emerald-500'}`} />
               Bed 2 Unit
@@ -251,33 +269,31 @@ export const LiveMonitoring = () => {
         <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
           {/* Node-RED Status Indicator */}
           <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${isNodeRedOnline ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+            <span className={`w-2.5 h-2.5 rounded-full ${hasHardware ? 'bg-emerald-400 animate-ping' : 'bg-red-400'}`} />
             <span className="text-slate-300 font-sans font-semibold">Node-RED Stream:</span>
-            <span className={`font-bold px-2 py-0.5 rounded-md text-[11px] ${
-              isNodeRedOnline
+            <span className={`font-bold px-2 py-0.5 rounded-md text-[11px] ${hasHardware
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-            }`}>
-              {isNodeRedOnline ? 'ONLINE (ACTIVE)' : 'STANDBY / SIM'}
+                : 'bg-red-500/20 text-red-300 border border-red-500/30'
+              }`}>
+              {hasHardware ? 'ONLINE (ACTIVE)' : 'DISCONNECTED'}
             </span>
           </div>
 
           {/* Hardware vs Demo Badge */}
           <div className="flex items-center gap-2">
             <span className="text-slate-300 font-sans font-semibold">Data Source:</span>
-            <span className={`font-bold px-2 py-0.5 rounded-md text-[11px] ${
-              isRealHardware
+            <span className={`font-bold px-2 py-0.5 rounded-md text-[11px] ${hasHardware
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-            }`}>
-              {isRealHardware ? 'REAL HARDWARE (Node-RED)' : 'DEMO SIMULATION'}
+                : 'bg-slate-700 text-slate-300 border border-slate-600'
+              }`}>
+              {hasHardware ? 'REAL HARDWARE (Node-RED)' : 'NO SENSOR CONNECTED (NULL)'}
             </span>
           </div>
 
           {/* Device ID */}
           <div className="hidden md:flex items-center gap-2 text-slate-400">
             <span>Device:</span>
-            <span className="text-sky-300 font-bold">{currentVitals?.deviceId || `RPI_BED_${activeBed}`}</span>
+            <span className="text-sky-300 font-bold">{hasHardware ? (currentVitals?.deviceId || `RPI_BED_${activeBed}`) : 'DISCONNECTED'}</span>
           </div>
         </div>
 
@@ -286,8 +302,8 @@ export const LiveMonitoring = () => {
           <div className="flex items-center gap-1.5 text-slate-300">
             <Clock className="w-3.5 h-3.5 text-sky-400" />
             <span>
-              Last Packet: <strong className="text-white">{lastPacketTime ? lastPacketTime.toLocaleTimeString() : '--:--:--'}</strong>
-              {secondsSincePacket !== null && (
+              Last Packet: <strong className="text-white">{hasHardware && lastPacketTime ? lastPacketTime.toLocaleTimeString() : '--:--:--'}</strong>
+              {hasHardware && secondsSincePacket !== null && (
                 <span className={`ml-1.5 text-[11px] ${isStale ? 'text-amber-400 font-bold' : 'text-slate-400'}`}>
                   ({secondsSincePacket}s ago)
                 </span>
@@ -295,11 +311,15 @@ export const LiveMonitoring = () => {
             </span>
           </div>
 
-          {isStale && (
+          {!hasHardware ? (
+            <span className="px-2 py-0.5 rounded-md bg-red-500/20 text-red-300 border border-red-500/30 font-bold text-[10px]">
+              NO HARDWARE STREAM
+            </span>
+          ) : isStale ? (
             <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-[10px]">
               DATA STALE
             </span>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -327,7 +347,7 @@ export const LiveMonitoring = () => {
             ) : (
               <div>
                 <h4 className="font-bold text-emerald-700 text-sm">Bed {activeBed} Available</h4>
-                <p className="text-xs text-slate-500">Telemetry streaming continuously from hardware box.</p>
+                <p className="text-xs text-slate-500">Ready to admit patient for continuous hardware monitoring.</p>
               </div>
             )}
           </div>
@@ -356,34 +376,43 @@ export const LiveMonitoring = () => {
       </div>
 
       {/* =========================================================================
-          SECTION C: 3 DEDICATED SENSOR CARDS
+          SECTION C: 4 DEDICATED SENSOR CARDS
          ========================================================================= */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         {/* 1. Temperature Sensor Card */}
         <TemperatureSensorCard
-          temperature={currentVitals?.temperature}
-          history={currentHistory}
-          lastUpdated={lastPacketTime ? lastPacketTime.toLocaleTimeString() : null}
+          temperature={liveTemp}
+          history={hasHardware ? currentHistory : []}
+          lastUpdated={hasHardware && lastPacketTime ? lastPacketTime.toLocaleTimeString() : null}
           thresholds={{ max: thresholds.tempMax, min: thresholds.tempMin }}
-          isStale={isStale}
+          isStale={!hasHardware || isStale}
         />
 
-        {/* 2. Ultrasonic Distance Card */}
+        {/* 2. Humidity Sensor Card */}
+        <HumiditySensorCard
+          humidity={liveHumidity}
+          history={hasHardware ? currentHistory : []}
+          lastUpdated={hasHardware && lastPacketTime ? lastPacketTime.toLocaleTimeString() : null}
+          thresholds={{ max: thresholds.humidityMax ?? 70, min: thresholds.humidityMin ?? 30 }}
+          isStale={!hasHardware || isStale}
+        />
+
+        {/* 3. Ultrasonic Distance Card */}
         <UltrasonicSensorCard
-          distance={currentVitals?.ultrasonicDistance}
-          history={currentHistory}
-          lastUpdated={lastPacketTime ? lastPacketTime.toLocaleTimeString() : null}
+          distance={liveDist}
+          history={hasHardware ? currentHistory : []}
+          lastUpdated={hasHardware && lastPacketTime ? lastPacketTime.toLocaleTimeString() : null}
           thresholds={{ maxDistance: thresholds.distanceMax, minDistance: thresholds.distanceMin }}
-          isStale={isStale}
+          isStale={!hasHardware || isStale}
         />
 
-        {/* 3. Force / Pressure Sensor Card */}
+        {/* 4. Force / Pressure Sensor Card */}
         <ForceSensorCard
-          force={currentVitals?.force}
-          history={currentHistory}
-          lastUpdated={lastPacketTime ? lastPacketTime.toLocaleTimeString() : null}
+          force={liveForce}
+          history={hasHardware ? currentHistory : []}
+          lastUpdated={hasHardware && lastPacketTime ? lastPacketTime.toLocaleTimeString() : null}
           thresholds={{ minForce: thresholds.forceMin }}
-          isStale={isStale}
+          isStale={!hasHardware || isStale}
         />
       </div>
 
@@ -391,107 +420,10 @@ export const LiveMonitoring = () => {
           SECTION D: DYNAMIC MULTI-CHANNEL TELEMETRY CHART
          ========================================================================= */}
       <HardwareTelemetryChart
-        data={currentHistory}
+        data={hasHardware ? currentHistory : []}
         title={`Bed ${activeBed} Hardware Telemetry Stream`}
         thresholds={thresholds}
       />
-
-      {/* =========================================================================
-          SECTION E: ALERTS, STATUS & SYSTEM DIAGNOSTICS
-         ========================================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Current Risk / Status Summary Banner */}
-        <div className="lg:col-span-1 bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-4 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Clinic Triage Status
-              </span>
-              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider border ${
-                currentVitals?.riskLevel === 'EMERGENCY'
-                  ? 'bg-red-50 text-red-700 border-red-200 animate-pulse'
-                  : currentVitals?.riskLevel === 'ATTENTION'
-                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-              }`}>
-                {currentVitals?.riskLevel || 'NORMAL'}
-              </span>
-            </div>
-
-            <h3 className="font-extrabold text-slate-900 text-lg">
-              {currentVitals?.riskLevel === 'EMERGENCY'
-                ? 'Critical Threshold Alert'
-                : currentVitals?.riskLevel === 'ATTENTION'
-                ? 'Attention / Threshold Warning'
-                : 'All Sensors Stable'}
-            </h3>
-
-            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-              {currentVitals?.riskExplanation ||
-                'All hardware sensor channels (Temperature, Ultrasonic Proximity, Force) are operating within designated clinical parameters.'}
-            </p>
-          </div>
-
-          {/* Quick Diagnostics Strip */}
-          <div className="pt-3 border-t border-slate-100 space-y-2 text-xs">
-            <div className="flex justify-between text-slate-500">
-              <span>Bed Unit:</span>
-              <span className="font-mono font-bold text-slate-800">Medical Room Bed {activeBed}</span>
-            </div>
-            <div className="flex justify-between text-slate-500">
-              <span>Ingestion Protocol:</span>
-              <span className="font-mono text-slate-800">HTTP POST /api/iot/vitals</span>
-            </div>
-            <div className="flex justify-between text-slate-500">
-              <span>Transport:</span>
-              <span className="font-mono text-slate-800">WebSocket (Socket.IO)</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Live Alert Triggers Log */}
-        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-sky-600" />
-              Active Hardware Triggers & Telemetry Log
-            </h4>
-            <span className="text-[11px] text-slate-400 font-mono">Real-time event feed</span>
-          </div>
-
-          <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
-            {currentVitals?.triggers && currentVitals.triggers.length > 0 ? (
-              currentVitals.triggers.map((trigger, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900"
-                >
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-bold font-sans">{trigger}</p>
-                    <p className="text-[10px] text-amber-700/80 font-mono mt-0.5">
-                      Triggered at {lastPacketTime ? lastPacketTime.toLocaleTimeString() : 'Recent'} &bull; Bed {activeBed}
-                    </p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200 text-xs text-emerald-800">
-                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>No threshold breaches detected. Continuous telemetry is operating nominally.</span>
-              </div>
-            )}
-          </div>
-
-          {/* Technical IoT Disclaimer Banner */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-start gap-2.5 text-[11px] text-slate-500">
-            <Info className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-            <p>
-              <strong>Technical Telemetry Notice:</strong> Sensor thresholds provide automated clinical engineering alerts based on configured hardware parameters. They do not constitute autonomous medical diagnoses. Attending campus physicians should independently inspect the patient.
-            </p>
-          </div>
-        </div>
-      </div>
 
       {/* =========================================================================
           MODAL: CONFIGURE SENSOR THRESHOLDS
@@ -530,6 +462,36 @@ export const LiveMonitoring = () => {
                   step="0.1"
                   value={tempThresholds.tempMin}
                   onChange={(e) => setTempThresholds({ ...tempThresholds, tempMin: parseFloat(e.target.value) })}
+                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Humidity thresholds */}
+          <div className="space-y-2 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+            <h5 className="font-bold text-slate-800 text-xs flex items-center gap-2">
+              <Droplets className="w-3.5 h-3.5 text-cyan-600" />
+              Humidity Thresholds (%)
+            </h5>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-[11px] text-slate-500 font-semibold mb-1">Max Humidity Alert (%)</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={tempThresholds.humidityMax ?? 70}
+                  onChange={(e) => setTempThresholds({ ...tempThresholds, humidityMax: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-500 font-semibold mb-1">Min Humidity Alert (%)</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={tempThresholds.humidityMin ?? 30}
+                  onChange={(e) => setTempThresholds({ ...tempThresholds, humidityMin: parseFloat(e.target.value) || 0 })}
                   className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-sky-500"
                 />
               </div>
@@ -626,10 +588,17 @@ export const LiveMonitoring = () => {
         onClose={() => setIsStartModalOpen(false)}
         title={`Start Monitoring Session on Bed ${activeBed}`}
       >
-        <form onSubmit={handleStart} className="space-y-4">
+        <form onSubmit={(e) => handleStart(e, false)} className="space-y-4">
           {errorMsg && (
-            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-semibold">
-              {errorMsg}
+            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs space-y-2">
+              <div className="font-semibold">{errorMsg}</div>
+              <button
+                type="button"
+                onClick={(e) => handleStart(e, true)}
+                className="w-full py-2 px-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition text-xs shadow-sm flex items-center justify-center gap-2"
+              >
+                End Existing Session & Admit Patient Now
+              </button>
             </div>
           )}
 

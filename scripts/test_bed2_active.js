@@ -1,14 +1,11 @@
 const prisma = require('../backend/src/services/prisma');
 
 async function testQuery() {
-  const activeBedSession = await prisma.monitoringSession.findFirst({
-    where: { bedNumber: 2, status: 'ACTIVE' },
-    include: { student: { include: { user: true } } }
+  const activeSessions = await prisma.monitoringSession.findMany({
+    where: { status: 'ACTIVE' }
   });
 
-  console.log('Result of findFirst for Bed 2 ACTIVE:');
-  console.log(JSON.stringify(activeBedSession, null, 2));
-
+  console.log('ACTIVE SESSIONS IN DB:', activeSessions);
   process.exit(0);
 }
 

@@ -29,6 +29,22 @@ function transformWhere(where) {
   for (const [key, val] of Object.entries(where)) {
     if (val === undefined) continue;
 
+    if (key === 'OR' && Array.isArray(val)) {
+      const orList = val.map(transformWhere).filter(sub => Object.keys(sub).length > 0);
+      if (orList.length > 0) {
+        mongoFilter['$or'] = orList;
+      }
+      continue;
+    }
+
+    if (key === 'AND' && Array.isArray(val)) {
+      const andList = val.map(transformWhere).filter(sub => Object.keys(sub).length > 0);
+      if (andList.length > 0) {
+        mongoFilter['$and'] = andList;
+      }
+      continue;
+    }
+
     if (val === null) {
       mongoFilter[key] = null;
     } else if (typeof val === 'object' && !Array.isArray(val) && !(val instanceof Date)) {
@@ -93,11 +109,11 @@ class MongoCollection {
     return database.collection(this.name);
   }
 
-  async findUnique({ where, include }) {
+  async findUnique({ where, include } = {}) {
     return this.findFirst({ where, include });
   }
 
-  async findFirst({ where, include, orderBy }) {
+  async findFirst({ where, include, orderBy } = {}) {
     const col = await this.getCol();
     const filter = transformWhere(where);
     const sort = transformOrderBy(orderBy);
@@ -129,19 +145,47 @@ class MongoCollection {
     const now = new Date();
     const id = data.id || crypto.randomUUID();
 
+    // Separate nested Prisma relations to avoid dumping unmapped objects
+    const { doctorProfile, studentProfile, ...cleanData } = data;
+
     const doc = {
       _id: id,
       id,
-      ...data,
+      ...cleanData,
       createdAt: data.createdAt || now,
       updatedAt: data.updatedAt || now
     };
 
     await col.insertOne(doc);
+
+    // If nested doctorProfile creation requested
+    if (doctorProfile?.create) {
+      const docCol = new MongoCollection('doctorProfile');
+      const docProfileRecord = await docCol.create({
+        data: {
+          ...doctorProfile.create,
+          userId: id
+        }
+      });
+      doc.doctorProfile = docProfileRecord;
+    }
+
+    // If nested studentProfile creation requested
+    if (studentProfile?.create) {
+      const stuCol = new MongoCollection('studentProfile');
+      const stuProfileRecord = await stuCol.create({
+        data: {
+          ...studentProfile.create,
+          userId: id
+        }
+      });
+      doc.studentProfile = stuProfileRecord;
+    }
+
     return doc;
   }
 
-  async update({ where, data }) {
+  async update({ where = {}, data = {} } = {}) {
     const col = await this.getCol();
     const filter = transformWhere(where);
 
@@ -166,7 +210,32 @@ class MongoCollection {
     return res;
   }
 
-  async upsert({ where, update, create }) {
+  async updateMany({ where = {}, data = {} } = {}) {
+    const col = await this.getCol();
+    const filter = transformWhere(where);
+
+    const updateDoc = {};
+    const incDoc = {};
+
+    for (const [key, val] of Object.entries(data)) {
+      if (val && typeof val === 'object' && val.increment !== undefined) {
+        incDoc[key] = val.increment;
+      } else {
+        updateDoc[key] = val;
+      }
+    }
+
+    updateDoc.updatedAt = new Date();
+
+    const updateQuery = {};
+    if (Object.keys(updateDoc).length > 0) updateQuery.$set = updateDoc;
+    if (Object.keys(incDoc).length > 0) updateQuery.$inc = incDoc;
+
+    const res = await col.updateMany(filter, updateQuery);
+    return { count: res.modifiedCount };
+  }
+
+  async upsert({ where = {}, update = {}, create = {} } = {}) {
     const existing = await this.findFirst({ where });
     if (existing) {
       return this.update({ where: { id: existing.id }, data: update });
@@ -174,7 +243,7 @@ class MongoCollection {
     return this.create({ data: create });
   }
 
-  async delete({ where }) {
+  async delete({ where = {} } = {}) {
     const col = await this.getCol();
     const filter = transformWhere(where);
     const existing = await col.findOne(filter);
@@ -239,18 +308,43 @@ class MongoCollection {
         populated.doctorProfile = p;
       } else if (relation === 'student') {
         const s = await database.collection('studentProfile').findOne({ id: doc.studentId });
-        if (s && typeof includeOpt === 'object' && includeOpt.include) {
-          populated.student = await new MongoCollection('studentProfile').populateRelations(s, includeOpt.include);
+        if (s) {
+          if (typeof includeOpt === 'object' && includeOpt.include) {
+            populated.student = await new MongoCollection('studentProfile').populateRelations(s, includeOpt.include);
+          } else {
+            const u = await database.collection('user').findOne({ id: s.userId });
+            populated.student = { ...s, user: u };
+          }
         } else {
-          populated.student = s;
+          populated.student = null;
         }
       } else if (relation === 'doctor') {
         const d = await database.collection('doctorProfile').findOne({ id: doc.doctorId });
-        if (d && typeof includeOpt === 'object' && includeOpt.include) {
-          populated.doctor = await new MongoCollection('doctorProfile').populateRelations(d, includeOpt.include);
+        if (d) {
+          if (typeof includeOpt === 'object' && includeOpt.include) {
+            populated.doctor = await new MongoCollection('doctorProfile').populateRelations(d, includeOpt.include);
+          } else {
+            const u = await database.collection('user').findOne({ id: d.userId });
+            populated.doctor = { ...d, user: u };
+          }
         } else {
-          populated.doctor = d;
+          populated.doctor = null;
         }
+      } else if (relation === '_count') {
+        const counts = {};
+        if (includeOpt.select?.prescriptions) {
+          counts.prescriptions = await database.collection('prescription').countDocuments({ studentId: doc.id });
+        }
+        if (includeOpt.select?.sessions) {
+          counts.sessions = await database.collection('monitoringSession').countDocuments({ studentId: doc.id });
+        }
+        if (includeOpt.select?.medicalReports) {
+          counts.medicalReports = await database.collection('medicalReport').countDocuments({ studentId: doc.id });
+        }
+        if (includeOpt.select?.clinicalNotes) {
+          counts.clinicalNotes = await database.collection('clinicalNote').countDocuments({ studentId: doc.id });
+        }
+        populated._count = counts;
       } else if (relation === 'healthBaselines') {
         populated.healthBaselines = await database
           .collection('healthBaseline')
@@ -270,11 +364,39 @@ class MongoCollection {
           .limit(10)
           .toArray();
       } else if (relation === 'prescriptions') {
-        populated.prescriptions = await database
+        const rawPrescriptions = await database
           .collection('prescription')
           .find({ studentId: doc.id })
           .sort({ createdAt: -1 })
           .toArray();
+        populated.prescriptions = await Promise.all(
+          rawPrescriptions.map(async (p) => {
+            let docInfo = p.doctor;
+            if (!docInfo && p.doctorId) {
+              const d = await database.collection('doctorProfile').findOne({ id: p.doctorId });
+              if (d) {
+                const u = await database.collection('user').findOne({ id: d.userId });
+                docInfo = { ...d, user: u };
+              }
+            }
+            const normalizedItems = Array.isArray(p.items)
+              ? p.items
+              : Array.isArray(p.items?.create)
+              ? p.items.create
+              : [];
+            return {
+              ...p,
+              doctor: docInfo,
+              items: normalizedItems
+            };
+          })
+        );
+      } else if (relation === 'items') {
+        if (doc.items && !Array.isArray(doc.items) && Array.isArray(doc.items.create)) {
+          populated.items = doc.items.create;
+        } else if (!populated.items) {
+          populated.items = [];
+        }
       } else if (relation === 'clinicalNotes') {
         populated.clinicalNotes = await database
           .collection('clinicalNote')

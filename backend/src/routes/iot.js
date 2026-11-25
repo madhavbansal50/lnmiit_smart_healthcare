@@ -316,6 +316,7 @@ router.post('/vitals', verifyIoTAuth, async (req, res) => {
       temperature: temperature !== null ? temperature : 36.8,
       ultrasonicDistance: ultrasonicDistance !== null ? ultrasonicDistance : null,
       force: force !== null ? force : null,
+      humidity: humidity !== null && humidity !== undefined ? parseFloat(parseFloat(humidity).toFixed(1)) : null,
       heartRate: heartRate !== null ? heartRate : null,
       spo2: spo2 !== null ? spo2 : null,
       sensorStatus: evaluation.sensorStatus,
@@ -352,6 +353,7 @@ router.post('/vitals', verifyIoTAuth, async (req, res) => {
           temperature: temperature !== null ? temperature : 36.8,
           ultrasonicDistance: ultrasonicDistance !== null ? ultrasonicDistance : null,
           force: force !== null ? force : null,
+          humidity: humidity !== null && humidity !== undefined ? parseFloat(parseFloat(humidity).toFixed(1)) : null,
           heartRate: heartRate !== null ? heartRate : null,
           spo2: spo2 !== null ? spo2 : null,
           riskLevel: evaluation.riskLevel,
@@ -385,10 +387,11 @@ router.post('/vitals', verifyIoTAuth, async (req, res) => {
     // 6. Signal the Simulator to YIELD to Real Hardware Data
     simulator.recordHardwareReading(bedNumber, broadcastPayload);
 
-    // 7. Real-Time Socket.IO Broadcast
+    // 7. Real-Time Socket.IO Broadcast (Role-Based Stream Routing)
     const io = req.app.get('io');
     if (io) {
-      io.emit('VITALS_UPDATE', broadcastPayload);
+      io.to('role:doctor').to('role:admin').emit('VITALS_UPDATE', broadcastPayload);
+      io.to(`bed:${bedNumber}`).emit('VITALS_UPDATE', broadcastPayload);
       io.emit('DEVICE_STATUS', {
         deviceId,
         bedNumber,

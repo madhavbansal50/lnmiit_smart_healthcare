@@ -188,18 +188,22 @@ router.post('/patients', async (req, res) => {
 
     const d = parsed.data;
 
-    // Check duplicate email or roll number
-    const existing = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: d.email.toLowerCase() },
-          { studentProfile: { rollNumber: d.rollNumber.toUpperCase() } }
-        ]
-      }
+    // Check duplicate email in user collection
+    const existingEmail = await prisma.user.findFirst({
+      where: { email: d.email.toLowerCase() }
     });
 
-    if (existing) {
-      return res.status(409).json({ message: 'Student with this email or roll number already exists.' });
+    if (existingEmail) {
+      return res.status(409).json({ message: `Student with email "${d.email}" already exists.` });
+    }
+
+    // Check duplicate roll number in studentProfile collection
+    const existingRoll = await prisma.studentProfile.findFirst({
+      where: { rollNumber: d.rollNumber.toUpperCase() }
+    });
+
+    if (existingRoll) {
+      return res.status(409).json({ message: `Student with roll number "${d.rollNumber}" already exists.` });
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -238,16 +242,19 @@ router.post('/patients', async (req, res) => {
       }
     });
 
-    // Create baseline
-    await prisma.healthBaseline.create({
-      data: {
-        studentId: newUser.studentProfile.id,
-        baselineHeartRate: 72,
-        baselineSpo2: 98.4,
-        baselineTemperature: 36.8,
-        totalSessionsRecorded: 0
-      }
-    });
+    // Create health baseline
+    const studentProfileId = newUser.studentProfile?.id;
+    if (studentProfileId) {
+      await prisma.healthBaseline.create({
+        data: {
+          studentId: studentProfileId,
+          baselineHeartRate: 72,
+          baselineSpo2: 98.4,
+          baselineTemperature: 36.8,
+          totalSessionsRecorded: 0
+        }
+      });
+    }
 
     return res.status(201).json({
       message: 'Student patient registered successfully',
@@ -255,6 +262,9 @@ router.post('/patients', async (req, res) => {
     });
   } catch (err) {
     console.error('Create student error:', err);
+    if (err.code === 11000 || err.message?.includes('duplicate key')) {
+      return res.status(409).json({ message: 'A student with this email or roll number already exists.' });
+    }
     return res.status(500).json({ message: 'Failed to create student account' });
   }
 });
@@ -335,6 +345,31 @@ router.put('/alerts/:id/acknowledge', async (req, res) => {
     return res.json({ message: 'Alert acknowledged', alert });
   } catch (err) {
     return res.status(500).json({ message: 'Failed to acknowledge alert' });
+  }
+});
+
+// DELETE /api/doctors/alerts/:id - Delete single alert
+router.delete('/alerts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.riskEvent.delete({ where: { id } });
+    return res.json({ message: 'Alert deleted successfully' });
+  } catch (err) {
+    console.error('Delete alert error:', err);
+    return res.status(500).json({ message: 'Failed to delete alert' });
+  }
+});
+
+// DELETE /api/doctors/alerts - Delete / clear all alerts (or only acknowledged)
+router.delete('/alerts', async (req, res) => {
+  try {
+    const { onlyAcknowledged } = req.query;
+    const where = onlyAcknowledged === 'true' ? { isAcknowledged: true } : {};
+    const result = await prisma.riskEvent.deleteMany({ where });
+    return res.json({ message: 'Alerts cleared successfully', count: result.count });
+  } catch (err) {
+    console.error('Clear alerts error:', err);
+    return res.status(500).json({ message: 'Failed to clear alerts' });
   }
 });
 

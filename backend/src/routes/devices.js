@@ -4,6 +4,7 @@ const prisma = require('../services/prisma');
 const { requireAuth } = require('../middleware/auth');
 const simulator = require('../services/simulator');
 const { evaluateRisk } = require('../services/riskEngine');
+const { nodeRedClient } = require('../services/nodeRedClient');
 
 const router = express.Router();
 
@@ -14,13 +15,25 @@ router.get('/', async (req, res) => {
       orderBy: { bedNumber: 'asc' }
     });
 
-    // Check device freshness (mark OFFLINE if lastSeen > 60s ago)
+    const isGatewayOnline = nodeRedClient.isConnected;
     const now = Date.now();
+    const lastPacketDiff = nodeRedClient.lastPacketTime
+      ? (now - new Date(nodeRedClient.lastPacketTime).getTime())
+      : Infinity;
+    const isHardwareStreaming = isGatewayOnline && lastPacketDiff < 20000;
+
     const updatedDevices = devices.map(d => {
-      const diffMs = now - new Date(d.lastSeen).getTime();
+      let isOnline = false;
+      if (d.type === 'EDGE_GATEWAY' || d.deviceId?.includes('RPI') || d.deviceId?.includes('GATEWAY')) {
+        isOnline = isGatewayOnline;
+      } else {
+        isOnline = isHardwareStreaming;
+      }
+
       return {
         ...d,
-        status: diffMs < 60000 ? d.status : 'OFFLINE'
+        status: isOnline ? 'ONLINE' : 'OFFLINE',
+        isRealHardware: true
       };
     });
 
@@ -138,7 +151,8 @@ router.post('/edge/vitals', async (req, res) => {
 
     const io = req.app.get('io');
     if (io) {
-      io.emit('VITALS_UPDATE', payload);
+      io.to('role:doctor').to('role:admin').emit('VITALS_UPDATE', payload);
+      io.to(`bed:${bedNumber}`).emit('VITALS_UPDATE', payload);
       // Emergency alert modal dispatch disabled to prevent continuous popups
     }
 

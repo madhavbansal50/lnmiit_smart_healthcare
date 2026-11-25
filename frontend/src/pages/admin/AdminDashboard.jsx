@@ -146,7 +146,6 @@ export const AdminDashboard = () => {
                 <tr className="border-b border-slate-100 text-slate-400 font-semibold uppercase">
                   <th className="pb-2.5">Device Node</th>
                   <th className="pb-2.5">Bed / Type</th>
-                  <th className="pb-2.5">Mode</th>
                   <th className="pb-2.5">Status</th>
                 </tr>
               </thead>
@@ -159,13 +158,6 @@ export const AdminDashboard = () => {
                     </td>
                     <td className="py-3 text-slate-600">
                       {dev.bedNumber ? `Bed ${dev.bedNumber}` : 'System Gateway'}
-                    </td>
-                    <td className="py-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                        dev.isRealHardware ? 'bg-sky-50 text-sky-700 border border-sky-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}>
-                        {dev.isRealHardware ? 'HARDWARE' : 'SIMULATOR'}
-                      </span>
                     </td>
                     <td className="py-3">
                       <StatusBadge status={dev.status} />

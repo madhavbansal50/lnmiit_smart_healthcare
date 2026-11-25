@@ -45,14 +45,28 @@ router.put('/:id/read', requireAuth, async (req, res) => {
 // PUT /api/notifications/read-all
 router.put('/read-all', requireAuth, async (req, res) => {
   try {
-    await prisma.notification.updateMany({
+    const result = await prisma.notification.updateMany({
       where: { userId: req.user.id, isRead: false },
       data: { isRead: true }
     });
 
-    return res.json({ message: 'All notifications marked as read' });
+    return res.json({ message: 'All notifications marked as read', count: result?.count || 0 });
   } catch (err) {
+    console.error('Update notifications error:', err);
     return res.status(500).json({ message: 'Failed to update notifications' });
+  }
+});
+
+// DELETE /api/notifications/clear-all
+router.delete('/clear-all', requireAuth, async (req, res) => {
+  try {
+    const resClear = await prisma.notification.deleteMany({
+      where: { userId: req.user.id }
+    });
+    return res.json({ message: 'Notifications cleared', count: resClear.count });
+  } catch (err) {
+    console.error('Clear notifications error:', err);
+    return res.status(500).json({ message: 'Failed to clear notifications' });
   }
 });
 

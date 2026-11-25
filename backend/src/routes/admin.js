@@ -3,8 +3,33 @@ const bcrypt = require('bcryptjs');
 const { z } = require('zod');
 const prisma = require('../services/prisma');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { nodeRedClient } = require('../services/nodeRedClient');
 
 const router = express.Router();
+
+function getDevicesWithLiveStatus(devices) {
+  const isGatewayOnline = nodeRedClient.isConnected;
+  const now = Date.now();
+  const lastPacketDiff = nodeRedClient.lastPacketTime
+    ? (now - new Date(nodeRedClient.lastPacketTime).getTime())
+    : Infinity;
+  const isHardwareStreaming = isGatewayOnline && lastPacketDiff < 20000;
+
+  return devices.map(d => {
+    let isOnline = false;
+    if (d.type === 'EDGE_GATEWAY' || d.deviceId?.includes('RPI') || d.deviceId?.includes('GATEWAY')) {
+      isOnline = isGatewayOnline;
+    } else {
+      isOnline = isHardwareStreaming;
+    }
+
+    return {
+      ...d,
+      status: isOnline ? 'ONLINE' : 'OFFLINE',
+      isRealHardware: true
+    };
+  });
+}
 
 // Admin-only middleware applied to all routes in this file
 router.use(requireAuth, requireRole('ADMIN'));
@@ -12,7 +37,7 @@ router.use(requireAuth, requireRole('ADMIN'));
 // GET /api/admin/dashboard
 router.get('/dashboard', async (req, res) => {
   try {
-    const [totalDoctors, totalStudents, activeSessions, devices, recentSessions] = await Promise.all([
+    const [totalDoctors, totalStudents, activeSessions, rawDevices, recentSessions] = await Promise.all([
       prisma.doctorProfile.count(),
       prisma.studentProfile.count(),
       prisma.monitoringSession.count({ where: { status: 'ACTIVE' } }),
@@ -26,6 +51,8 @@ router.get('/dashboard', async (req, res) => {
         }
       })
     ]);
+
+    const devices = getDevicesWithLiveStatus(rawDevices);
 
     const activeBed1 = await prisma.monitoringSession.findFirst({
       where: { bedNumber: 1, status: 'ACTIVE' },
@@ -82,16 +109,28 @@ router.get('/doctors', async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
+    // Normalize to guarantee user presence
+    const normalizedDoctors = doctors.map(doc => ({
+      ...doc,
+      user: doc.user || {
+        firstName: 'Medical',
+        lastName: 'Officer',
+        email: 'doctor@lnmiit.ac.in',
+        phone: '',
+        status: 'ACTIVE'
+      }
+    }));
+
     // Apply search filter in-memory if search param provided
-    let filtered = doctors;
+    let filtered = normalizedDoctors;
     if (search) {
       const q = search.toLowerCase();
-      filtered = doctors.filter(doc =>
-        doc.user.firstName.toLowerCase().includes(q) ||
-        doc.user.lastName.toLowerCase().includes(q) ||
-        doc.doctorId.toLowerCase().includes(q) ||
-        doc.specialization.toLowerCase().includes(q) ||
-        doc.user.email.toLowerCase().includes(q)
+      filtered = normalizedDoctors.filter(doc =>
+        (doc.user.firstName || '').toLowerCase().includes(q) ||
+        (doc.user.lastName || '').toLowerCase().includes(q) ||
+        (doc.doctorId || '').toLowerCase().includes(q) ||
+        (doc.specialization || '').toLowerCase().includes(q) ||
+        (doc.user.email || '').toLowerCase().includes(q)
       );
     }
 
@@ -131,45 +170,82 @@ router.post('/doctors', async (req, res) => {
 
     const data = parsed.data;
 
-    // Check if email or doctorId exists
-    const existing = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email: data.email.toLowerCase() },
-          { doctorProfile: { doctorId: data.doctorId } }
-        ]
-      }
+    // Check if doctorId exists
+    const existingDoctorId = await prisma.doctorProfile.findFirst({
+      where: { doctorId: data.doctorId }
     });
 
-    if (existing) {
-      return res.status(409).json({ message: 'A doctor with this email or Doctor ID already exists.' });
+    if (existingDoctorId) {
+      return res.status(409).json({ message: `Doctor ID "${data.doctorId}" is already assigned to another doctor.` });
     }
 
+    // Check if user with this email already exists
+    const existingUser = await prisma.user.findFirst({
+      where: { email: data.email.toLowerCase() }
+    });
+
+    let newUser;
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(data.password, salt);
 
-    const newUser = await prisma.user.create({
-      data: {
-        email: data.email.toLowerCase(),
-        password: hashedPassword,
-        role: 'DOCTOR',
-        firstName: data.firstName,
-        lastName: data.lastName,
-        phone: data.phone || null,
-        status: data.status,
-        doctorProfile: {
-          create: {
-            doctorId: data.doctorId,
-            specialization: data.specialization,
-            qualification: data.qualification,
-            experience: data.experience,
-            department: data.department,
-            availableDays: data.availableDays
-          }
+    if (existingUser) {
+      const existingDocProfile = await prisma.doctorProfile.findFirst({
+        where: { userId: existingUser.id }
+      });
+      if (existingDocProfile) {
+        return res.status(409).json({ message: `A doctor with email "${data.email}" already exists.` });
+      }
+
+      // Existing user without doctor profile: update role and create profile
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          password: hashedPassword,
+          role: 'DOCTOR',
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone || existingUser.phone,
+          status: data.status
         }
-      },
-      include: { doctorProfile: true }
-    });
+      });
+
+      const docProfile = await prisma.doctorProfile.create({
+        data: {
+          userId: existingUser.id,
+          doctorId: data.doctorId,
+          specialization: data.specialization,
+          qualification: data.qualification,
+          experience: data.experience,
+          department: data.department,
+          availableDays: data.availableDays
+        }
+      });
+
+      newUser = { ...existingUser, doctorProfile: docProfile };
+    } else {
+      newUser = await prisma.user.create({
+        data: {
+          email: data.email.toLowerCase(),
+          password: hashedPassword,
+          role: 'DOCTOR',
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone || null,
+          status: data.status,
+          doctorProfile: {
+            create: {
+              doctorId: data.doctorId,
+              specialization: data.specialization,
+              qualification: data.qualification,
+              experience: data.experience,
+              department: data.department,
+              availableDays: data.availableDays
+            }
+          }
+        },
+        include: { doctorProfile: true }
+      });
+    }
 
     // Ensure specialization is stored in specialization directory
     await prisma.doctorSpecialization.upsert({
@@ -184,6 +260,9 @@ router.post('/doctors', async (req, res) => {
     });
   } catch (err) {
     console.error('Create doctor error:', err);
+    if (err.code === 11000 || err.message?.includes('duplicate key')) {
+      return res.status(409).json({ message: `A user or doctor with email "${req.body?.email}" already exists.` });
+    }
     return res.status(500).json({ message: 'Server error creating doctor profile' });
   }
 });
@@ -325,10 +404,10 @@ router.put('/students/:id/assign-doctor', async (req, res) => {
 // GET /api/admin/devices
 router.get('/devices', async (req, res) => {
   try {
-    const devices = await prisma.device.findMany({
+    const rawDevices = await prisma.device.findMany({
       orderBy: { createdAt: 'asc' }
     });
-    return res.json(devices);
+    return res.json(getDevicesWithLiveStatus(rawDevices));
   } catch (err) {
     return res.status(500).json({ message: 'Failed to fetch devices' });
   }

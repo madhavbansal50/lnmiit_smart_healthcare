@@ -135,18 +135,19 @@ export const DoctorManagement = () => {
 
   const openEditModal = (doc) => {
     setSelectedDoctor(doc);
+    const u = doc.user || {};
     setFormData({
-      firstName: doc.user.firstName,
-      lastName: doc.user.lastName,
-      email: doc.user.email,
-      phone: doc.user.phone || '',
+      firstName: u.firstName || '',
+      lastName: u.lastName || '',
+      email: u.email || '',
+      phone: u.phone || '',
       doctorId: doc.doctorId,
       specialization: doc.specialization,
       qualification: doc.qualification,
       experience: doc.experience,
-      department: doc.department,
+      department: doc.department || 'LNMIIT Medical Centre',
       availableDays: doc.availableDays || 'Mon - Fri',
-      status: doc.user.status,
+      status: u.status || 'ACTIVE',
       password: ''
     });
     setFormError('');
@@ -252,84 +253,93 @@ export const DoctorManagement = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-5">
-          {doctors.map((doc) => (
-            <div
-              key={doc.id}
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition space-y-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-base border border-sky-200">
-                    {doc.user.firstName[0]}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-base">
-                      Dr. {doc.user.firstName} {doc.user.lastName}
-                    </h3>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-100">
-                        {doc.specialization}
-                      </span>
-                      <span className="text-[11px] font-mono text-slate-400">
-                        {doc.doctorId}
-                      </span>
+          {doctors.map((doc) => {
+            const u = doc.user || {};
+            const initial = u.firstName ? u.firstName[0] : (doc.doctorId ? doc.doctorId.slice(-2) : 'D');
+            const fullName = u.firstName ? `Dr. ${u.firstName} ${u.lastName || ''}` : `Dr. ${doc.doctorId || 'Medical Officer'}`;
+            const status = u.status || 'ACTIVE';
+            const email = u.email || 'No email registered';
+            const phone = u.phone || 'Phone not registered';
+
+            return (
+              <div
+                key={doc.id}
+                className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition space-y-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-base border border-sky-200">
+                      {initial}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-base">
+                        {fullName}
+                      </h3>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-100">
+                          {doc.specialization}
+                        </span>
+                        <span className="text-[11px] font-mono text-slate-400">
+                          {doc.doctorId}
+                        </span>
+                      </div>
                     </div>
                   </div>
+
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                    status === 'ACTIVE'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}>
+                    {status}
+                  </span>
                 </div>
 
-                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                  doc.user.status === 'ACTIVE'
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-slate-100 text-slate-600 border-slate-200'
-                }`}>
-                  {doc.user.status}
-                </span>
-              </div>
+                {/* Details */}
+                <div className="space-y-1.5 text-xs text-slate-600 pt-2 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <GraduationCap className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="font-medium text-slate-700 truncate">{doc.qualification}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Award className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{doc.experience} Years of Clinical Experience</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Mail className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="truncate">{email}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{phone}</span>
+                  </div>
+                </div>
 
-              {/* Details */}
-              <div className="space-y-1.5 text-xs text-slate-600 pt-2 border-t border-slate-100">
-                <div className="flex items-center gap-2">
-                  <GraduationCap className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-medium text-slate-700 truncate">{doc.qualification}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Award className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{doc.experience} Years of Clinical Experience</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Mail className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="truncate">{doc.user.email}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Phone className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{doc.user.phone || 'Phone not registered'}</span>
-                </div>
-              </div>
-
-              {/* Stats & Actions */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
-                <div className="text-slate-500">
-                  <strong className="text-slate-800">{doc._count?.sessions || 0}</strong> Sessions Monitored
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => openEditModal(doc)}
-                    className="p-1.5 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition"
-                    title="Edit Doctor Profile"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(doc.id)}
-                    className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                    title="Deactivate / Delete"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                {/* Stats & Actions */}
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+                  <div className="text-slate-500">
+                    <strong className="text-slate-800">{doc._count?.sessions || 0}</strong> Sessions Monitored
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => openEditModal(doc)}
+                      className="p-1.5 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition"
+                      title="Edit Doctor Profile"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(doc.id)}
+                      className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                      title="Deactivate / Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

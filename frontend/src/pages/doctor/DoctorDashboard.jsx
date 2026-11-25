@@ -35,9 +35,11 @@ import { RiskBadge, StatusBadge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { useVitals } from '../../context/VitalsContext';
 import { useAuth } from '../../context/AuthContext';
+import { getSocket } from '../../services/socket';
 
 export const DoctorDashboard = () => {
   const [data, setData] = useState(null);
+  const [activeSessions, setActiveSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchPatient, setSearchPatient] = useState('');
   const [selectedDevice, setSelectedDevice] = useState('esp32_1'); // 'esp32_1' or 'esp32_2'
@@ -50,6 +52,7 @@ export const DoctorDashboard = () => {
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [startError, setStartError] = useState('');
+  const [isForceSubmitting, setIsForceSubmitting] = useState(false);
 
   // End Session Modal
   const [isEndModalOpen, setIsEndModalOpen] = useState(false);
@@ -71,6 +74,15 @@ export const DoctorDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const fetchActiveSessions = async () => {
+    try {
+      const res = await api.get('/sessions/active');
+      setActiveSessions(res.data || []);
+    } catch (err) {
+      console.error('Failed to load active sessions:', err);
+    }
+  };
+
   const fetchDashboard = async () => {
     try {
       const res = await api.get('/doctors/dashboard');
@@ -82,8 +94,34 @@ export const DoctorDashboard = () => {
     }
   };
 
-  useEffect(() => {
+  const refreshAll = () => {
     fetchDashboard();
+    fetchActiveSessions();
+  };
+
+  useEffect(() => {
+    refreshAll();
+
+    // Poll active sessions every 4 seconds to guarantee state synchronization
+    const interval = setInterval(() => {
+      fetchActiveSessions();
+    }, 4000);
+
+    // Immediate reactive updates via Socket.IO
+    const socket = getSocket();
+    const handleSessionChange = () => {
+      fetchActiveSessions();
+      fetchDashboard();
+    };
+
+    socket.on('SESSION_STARTED', handleSessionChange);
+    socket.on('SESSION_ENDED', handleSessionChange);
+
+    return () => {
+      clearInterval(interval);
+      socket.off('SESSION_STARTED', handleSessionChange);
+      socket.off('SESSION_ENDED', handleSessionChange);
+    };
   }, []);
 
   // Active ESP32 device data & history
@@ -94,6 +132,11 @@ export const DoctorDashboard = () => {
   const activeBed = selectedDevice === 'esp32_1' ? 1 : 2;
   const currentVitals = activeBed === 1 ? bed1Vitals : bed2Vitals;
   const currentHistory = activeBed === 1 ? bed1History : bed2History;
+
+  // Derive live active session from live polling + fallback to dashboard data
+  const liveSessionBed1 = activeSessions.find((s) => s.bedNumber === 1 && s.status === 'ACTIVE') || data?.beds?.bed1?.session;
+  const liveSessionBed2 = activeSessions.find((s) => s.bedNumber === 2 && s.status === 'ACTIVE') || data?.beds?.bed2?.session;
+  const currentSession = activeBed === 1 ? liveSessionBed1 : liveSessionBed2;
 
   // Last packet timestamp
   const lastPacketTimestamp = esp32Data?.timestamp || nodeRedStatus?.lastPacketTime || currentVitals?.timestamp;
@@ -132,23 +175,29 @@ export const DoctorDashboard = () => {
     }
   };
 
-  const handleStartSession = async (e) => {
-    e.preventDefault();
+  const handleStartSession = async (e, force = false) => {
+    if (e && e.preventDefault) e.preventDefault();
     if (!selectedStudentId) {
       setStartError('Please select a student.');
       return;
     }
+    if (force) setIsForceSubmitting(true);
     try {
       await api.post('/sessions/start', {
         studentId: selectedStudentId,
         bedNumber: targetBed,
-        chiefComplaint: chiefComplaint || 'Routine campus clinic vitals assessment'
+        chiefComplaint: chiefComplaint || 'Routine campus clinic vitals assessment',
+        forceEndExisting: force
       });
       setIsStartModalOpen(false);
       setChiefComplaint('');
-      fetchDashboard();
+      setStartError('');
+      refreshAll();
     } catch (err) {
       setStartError(err.response?.data?.message || 'Failed to start session');
+      refreshAll();
+    } finally {
+      setIsForceSubmitting(false);
     }
   };
 
@@ -160,12 +209,13 @@ export const DoctorDashboard = () => {
 
   const handleEndSession = async (e) => {
     e.preventDefault();
+    if (!endingSession?.id) return;
     try {
       await api.put(`/sessions/${endingSession.id}/end`, {
         summary: sessionSummary
       });
       setIsEndModalOpen(false);
-      fetchDashboard();
+      refreshAll();
     } catch (err) {
       alert('Failed to end session');
     }
@@ -335,7 +385,7 @@ export const DoctorDashboard = () => {
                   }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-sky-500" />
-                  ESP32_1 {beds?.bed1?.session ? `(${beds.bed1.session.student?.user?.firstName || 'Bed 1'})` : '(Bed 1)'}
+                  ESP32_1 {liveSessionBed1 ? `(${liveSessionBed1.student?.user?.firstName || 'Bed 1'})` : '(Available)'}
                 </button>
 
                 <button
@@ -347,7 +397,7 @@ export const DoctorDashboard = () => {
                   }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-purple-500" />
-                  ESP32_2 {beds?.bed2?.session ? `(${beds.bed2.session.student?.user?.firstName || 'Bed 2'})` : '(Bed 2)'}
+                  ESP32_2 {liveSessionBed2 ? `(${liveSessionBed2.student?.user?.firstName || 'Bed 2'})` : '(Available)'}
                 </button>
               </div>
 
@@ -377,22 +427,32 @@ export const DoctorDashboard = () => {
                 {selectedDevice === 'esp32_1' ? 'B1' : 'B2'}
               </div>
               <div>
-                {(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session) ? (
+                {currentSession ? (
                   <div>
-                    <span className="font-bold text-slate-800 text-sm">
-                      {(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session).student?.user?.firstName}{' '}
-                      {(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session).student?.user?.lastName}
-                    </span>
-                    <span className="text-xs text-slate-500 font-mono ml-2">
-                      ({(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session).student?.rollNumber})
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-800 text-sm">
+                        {currentSession.student?.user?.firstName}{' '}
+                        {currentSession.student?.user?.lastName}
+                      </span>
+                      <span className="text-xs text-slate-500 font-mono">
+                        ({currentSession.student?.rollNumber})
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
+                        ACTIVE SESSION
+                      </span>
+                    </div>
                     <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">
-                      Chief Complaint: <em>{(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session).chiefComplaint || 'Continuous vitals telemetry'}</em>
+                      Chief Complaint: <em>{currentSession.chiefComplaint || 'Continuous vitals telemetry'}</em>
                     </p>
                   </div>
                 ) : (
                   <div>
-                    <span className="font-semibold text-emerald-700 text-sm">Bed {activeBed} Available ({selectedDevice.toUpperCase()})</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-emerald-700 text-sm">Bed {activeBed} Available ({selectedDevice.toUpperCase()})</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        READY TO ADMIT
+                      </span>
+                    </div>
                     <p className="text-xs text-slate-500">Ready to admit patient for continuous sensor monitoring.</p>
                   </div>
                 )}
@@ -402,10 +462,10 @@ export const DoctorDashboard = () => {
             <div className="flex items-center gap-2">
               <RiskBadge level={currentVitals?.riskLevel || 'NORMAL'} size="md" />
 
-              {(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session) ? (
+              {currentSession ? (
                 <button
-                  onClick={() => openEndModal(activeBed === 1 ? beds?.bed1?.session : beds?.bed2?.session)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-white hover:bg-red-50 hover:text-red-700 text-slate-700 border border-slate-200 transition"
+                  onClick={() => openEndModal(currentSession)}
+                  className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-red-700 border border-red-200 shadow-sm transition"
                 >
                   End Session
                 </button>
@@ -433,7 +493,7 @@ export const DoctorDashboard = () => {
 
         {/* Dynamic Multi-Channel Real-Time Telemetry Chart */}
         <HardwareTelemetryChart
-          data={activeEsp32History.length > 0 ? activeEsp32History : currentHistory}
+          data={activeEsp32History}
           title={`${selectedDevice === 'esp32_1' ? 'ESP32 Device 1' : 'ESP32 Device 2'} Real-Time Multi-Channel Waveform`}
         />
       </div>
@@ -565,10 +625,18 @@ export const DoctorDashboard = () => {
         onClose={() => setIsStartModalOpen(false)}
         title={`Start Vital Monitoring Session — Bed ${targetBed}`}
       >
-        <form onSubmit={handleStartSession} className="space-y-4">
+        <form onSubmit={(e) => handleStartSession(e, false)} className="space-y-4">
           {startError && (
-            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs font-semibold">
-              {startError}
+            <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-xs space-y-2">
+              <div className="font-semibold">{startError}</div>
+              <button
+                type="button"
+                disabled={isForceSubmitting}
+                onClick={(e) => handleStartSession(e, true)}
+                className="w-full py-2 px-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition text-xs shadow-sm flex items-center justify-center gap-2"
+              >
+                {isForceSubmitting ? 'Ending previous session...' : 'End Existing Session & Admit Patient Now'}
+              </button>
             </div>
           )}
 

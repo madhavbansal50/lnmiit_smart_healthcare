@@ -8,6 +8,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 
 const simulator = require('./services/simulator');
+const prisma = require('./services/prisma');
 const { processSensorPacket } = require('./services/iotProcessor');
 const { initNodeRedClient, nodeRedClient } = require('./services/nodeRedClient');
 
@@ -147,11 +148,8 @@ server.on('upgrade', (request, socket, head) => {
 // SOCKET.IO EVENT HANDLERS (For React Frontend & Socket.IO Clients)
 // =============================================================================
 io.on('connection', (socket) => {
-  // Send current Node-RED WebSocket status and latest sensor packet
+  // Send current Node-RED connection status indicator
   socket.emit('NODERED_STATUS', nodeRedClient.getStatus());
-  if (nodeRedClient.lastData) {
-    socket.emit('SENSOR_DATA_UPDATE', nodeRedClient.lastData);
-  }
 
   // Direct sensor packet receiver if Node-RED sends via Socket.IO
   socket.on('IOT_SENSOR_DATA', async (data) => {
@@ -163,25 +161,136 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('AUTHENTICATE', (token) => {
+  // Strict Role-Based Socket Authentication & Room Allocation
+  socket.on('AUTHENTICATE', async (token) => {
     try {
       if (!token) return;
       const decoded = jwt.verify(token, JWT_SECRET);
       socket.userId = decoded.userId;
       socket.role = decoded.role;
 
-      if (decoded.role === 'ADMIN') socket.join('role:admin');
-      if (decoded.role === 'DOCTOR') socket.join('role:doctor');
-      if (decoded.role === 'STUDENT') socket.join(`student:${decoded.userId}`);
+      if (decoded.role === 'ADMIN' || decoded.role === 'DOCTOR') {
+        socket.join('role:admin');
+        socket.join('role:doctor');
+        // Doctors and Admins can observe all bed streams
+        socket.join('bed:1');
+        socket.join('bed:2');
 
-      socket.emit('AUTHENTICATED', { status: 'OK', role: decoded.role });
+        socket.emit('AUTHENTICATED', { status: 'OK', role: decoded.role });
+
+        // Provide immediate latest dual sensor state to doctor
+        if (nodeRedClient.lastData) {
+          socket.emit('SENSOR_DATA_UPDATE', nodeRedClient.lastData);
+        }
+      } else if (decoded.role === 'STUDENT') {
+        socket.join(`student:${decoded.userId}`);
+
+        // Lookup student profile and currently active monitoring session
+        const studentProfile = await prisma.studentProfile.findFirst({
+          where: { userId: decoded.userId }
+        });
+
+        if (studentProfile) {
+          socket.studentProfileId = studentProfile.id;
+          const activeSession = await prisma.monitoringSession.findFirst({
+            where: { studentId: studentProfile.id, status: 'ACTIVE' }
+          });
+
+          if (activeSession) {
+            socket.assignedBed = activeSession.bedNumber;
+            // Student ONLY joins their assigned bed room; strictly forbidden from other beds
+            socket.leave('bed:1');
+            socket.leave('bed:2');
+            socket.join(`bed:${activeSession.bedNumber}`);
+
+            socket.emit('ASSIGNED_BED', {
+              bedNumber: activeSession.bedNumber,
+              sessionId: activeSession.id
+            });
+
+            // Emit initial hardware sensor reading strictly for their assigned bed
+            if (nodeRedClient.lastData) {
+              if (activeSession.bedNumber === 1 && nodeRedClient.lastData.esp32_1) {
+                socket.emit('SENSOR_DATA_UPDATE', {
+                  esp32_1: nodeRedClient.lastData.esp32_1,
+                  timestamp: nodeRedClient.lastData.timestamp,
+                  source: nodeRedClient.lastData.source,
+                  isLiveHardware: nodeRedClient.lastData.isLiveHardware,
+                  transport: nodeRedClient.lastData.transport,
+                  bedNumber: 1
+                });
+              } else if (activeSession.bedNumber === 2 && nodeRedClient.lastData.esp32_2) {
+                socket.emit('SENSOR_DATA_UPDATE', {
+                  esp32_2: nodeRedClient.lastData.esp32_2,
+                  timestamp: nodeRedClient.lastData.timestamp,
+                  source: nodeRedClient.lastData.source,
+                  isLiveHardware: nodeRedClient.lastData.isLiveHardware,
+                  transport: nodeRedClient.lastData.transport,
+                  bedNumber: 2
+                });
+              }
+            }
+          } else {
+            socket.assignedBed = null;
+            socket.leave('bed:1');
+            socket.leave('bed:2');
+            socket.emit('NO_ACTIVE_BED', {
+              message: 'No active clinical monitoring session currently assigned.'
+            });
+          }
+        }
+
+        socket.emit('AUTHENTICATED', {
+          status: 'OK',
+          role: 'STUDENT',
+          assignedBed: socket.assignedBed || null
+        });
+      }
     } catch (err) {
       socket.emit('AUTH_ERROR', { message: 'Invalid socket auth token' });
     }
   });
 
-  socket.on('JOIN_BED', (bedNumber) => {
-    socket.join(`bed:${bedNumber}`);
+  // Secure Bed Stream Subscription: verifies backend authorization before allowing room join
+  socket.on('JOIN_BED', async (requestedBed) => {
+    const bed = parseInt(requestedBed, 10);
+    if (!bed || (bed !== 1 && bed !== 2)) {
+      return socket.emit('ERROR', { code: 'INVALID_BED', message: 'Bed must be 1 or 2' });
+    }
+
+    // Doctors & Admins are authorized to view all beds
+    if (socket.role === 'DOCTOR' || socket.role === 'ADMIN') {
+      socket.join(`bed:${bed}`);
+      return socket.emit('JOINED_BED', { bedNumber: bed });
+    }
+
+    // Students are strictly restricted to their assigned bed
+    if (socket.role === 'STUDENT') {
+      const studentProfile = await prisma.studentProfile.findFirst({
+        where: { userId: socket.userId }
+      });
+      if (!studentProfile) {
+        return socket.emit('ERROR', { code: 'FORBIDDEN', message: 'Student profile not found.' });
+      }
+
+      const activeSession = await prisma.monitoringSession.findFirst({
+        where: { studentId: studentProfile.id, status: 'ACTIVE' }
+      });
+
+      if (!activeSession || activeSession.bedNumber !== bed) {
+        return socket.emit('ERROR', {
+          code: 'FORBIDDEN',
+          message: `Security Access Denied: You are not authorized to subscribe to Bed ${bed} telemetry.`
+        });
+      }
+
+      socket.leave('bed:1');
+      socket.leave('bed:2');
+      socket.join(`bed:${bed}`);
+      return socket.emit('JOINED_BED', { bedNumber: bed });
+    }
+
+    return socket.emit('ERROR', { code: 'UNAUTHORIZED', message: 'Authentication required before subscribing to a bed stream.' });
   });
 
   socket.on('LEAVE_BED', (bedNumber) => {
@@ -189,12 +298,16 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    // disconnected
+    // client disconnected
   });
 });
 
-// Start Sensor Simulator loop
-simulator.start();
+// Sensor Simulator: only run if explicitly enabled via ENABLE_SIMULATOR=true
+if (process.env.ENABLE_SIMULATOR === 'true') {
+  simulator.start();
+} else {
+  console.log('[Simulator] Auto-simulation is DISABLED. Live monitoring is strictly in REAL HARDWARE mode.');
+}
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

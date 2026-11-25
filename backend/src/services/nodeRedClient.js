@@ -114,13 +114,34 @@ class NodeRedWebSocketClient {
 
       this.lastData = combinedUpdate;
 
-      // 1. Requirement 2: Broadcast via Socket.IO using event SENSOR_DATA_UPDATE
+      // 1. Role-Based Telemetry Broadcast via Socket.IO using SENSOR_DATA_UPDATE
       if (this.io) {
-        this.io.emit('SENSOR_DATA_UPDATE', combinedUpdate);
+        // Full dual sensor stream for Doctors and Admins
+        this.io.to('role:doctor').to('role:admin').emit('SENSOR_DATA_UPDATE', combinedUpdate);
+
+        // Bed 1 stream strictly for Bed 1 subscribers (authorized patients/doctors)
+        this.io.to('bed:1').emit('SENSOR_DATA_UPDATE', {
+          esp32_1: combinedUpdate.esp32_1,
+          timestamp: combinedUpdate.timestamp,
+          source: combinedUpdate.source,
+          isLiveHardware: combinedUpdate.isLiveHardware,
+          transport: combinedUpdate.transport,
+          bedNumber: 1
+        });
+
+        // Bed 2 stream strictly for Bed 2 subscribers (authorized patients/doctors)
+        this.io.to('bed:2').emit('SENSOR_DATA_UPDATE', {
+          esp32_2: combinedUpdate.esp32_2,
+          timestamp: combinedUpdate.timestamp,
+          source: combinedUpdate.source,
+          isLiveHardware: combinedUpdate.isLiveHardware,
+          transport: combinedUpdate.transport,
+          bedNumber: 2
+        });
       }
 
       // 2. Process Bed 1 (ESP32_1) in backend database & risk engine
-      if (esp32_1.temperature !== null || esp32_1.distance !== null || esp32_1.fsr !== null) {
+      if (esp32_1.temperature !== null || esp32_1.distance !== null || esp32_1.fsr !== null || esp32_1.humidity !== null) {
         await processSensorPacket({
           bedNumber: 1,
           deviceId: 'ESP32_DEVICE_1',
@@ -137,7 +158,7 @@ class NodeRedWebSocketClient {
       }
 
       // 3. Process Bed 2 (ESP32_2) in backend database & risk engine
-      if (esp32_2.temperature !== null || esp32_2.distance !== null || esp32_2.fsr !== null) {
+      if (esp32_2.temperature !== null || esp32_2.distance !== null || esp32_2.fsr !== null || esp32_2.humidity !== null) {
         await processSensorPacket({
           bedNumber: 2,
           deviceId: 'ESP32_DEVICE_2',

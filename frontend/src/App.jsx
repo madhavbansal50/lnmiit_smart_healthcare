@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { VitalsProvider } from './context/VitalsContext';
 import { AppLayout } from './layouts/AppLayout';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 // Auth Pages
 import { Login } from './pages/auth/Login';
@@ -11,7 +12,6 @@ import { Login } from './pages/auth/Login';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { DoctorManagement } from './pages/admin/DoctorManagement';
 import { StudentManagement } from './pages/admin/StudentManagement';
-import { DeviceManagement } from './pages/admin/DeviceManagement';
 import { NodeRedDashboard } from './pages/admin/NodeRedDashboard';
 import { AdminSettings } from './pages/admin/AdminSettings';
 
@@ -27,6 +27,7 @@ import { DoctorAlerts } from './pages/doctor/DoctorAlerts';
 // Student Pages
 import { StudentDashboard } from './pages/student/StudentDashboard';
 import { StudentHealth } from './pages/student/StudentHealth';
+import { StudentLiveMonitoring } from './pages/student/StudentLiveMonitoring';
 import { StudentHistory } from './pages/student/StudentHistory';
 import { StudentPrescriptions } from './pages/student/StudentPrescriptions';
 import { StudentReports } from './pages/student/StudentReports';
@@ -73,7 +74,8 @@ const RootRedirect = () => {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
       <AuthProvider>
         <VitalsProvider>
           <Routes>
@@ -116,11 +118,7 @@ export default function App() {
               />
               <Route
                 path="/admin/devices"
-                element={
-                  <ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}>
-                    <DeviceManagement />
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/admin" replace />}
               />
               <Route
                 path="/admin/nodered"
@@ -201,7 +199,7 @@ export default function App() {
               <Route
                 path="/student"
                 element={
-                  <ProtectedRoute allowedRoles={['STUDENT']}>
+                  <ProtectedRoute allowedRoles={['STUDENT', 'DOCTOR', 'ADMIN']}>
                     <StudentDashboard />
                   </ProtectedRoute>
                 }
@@ -209,7 +207,7 @@ export default function App() {
               <Route
                 path="/student/health"
                 element={
-                  <ProtectedRoute allowedRoles={['STUDENT']}>
+                  <ProtectedRoute allowedRoles={['STUDENT', 'DOCTOR', 'ADMIN']}>
                     <StudentHealth />
                   </ProtectedRoute>
                 }
@@ -217,15 +215,15 @@ export default function App() {
               <Route
                 path="/student/live"
                 element={
-                  <ProtectedRoute allowedRoles={['STUDENT']}>
-                    <LiveMonitoring />
+                  <ProtectedRoute allowedRoles={['STUDENT', 'DOCTOR', 'ADMIN']}>
+                    <StudentLiveMonitoring />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/student/history"
                 element={
-                  <ProtectedRoute allowedRoles={['STUDENT']}>
+                  <ProtectedRoute allowedRoles={['STUDENT', 'DOCTOR', 'ADMIN']}>
                     <StudentHistory />
                   </ProtectedRoute>
                 }
@@ -233,7 +231,7 @@ export default function App() {
               <Route
                 path="/student/prescriptions"
                 element={
-                  <ProtectedRoute allowedRoles={['STUDENT']}>
+                  <ProtectedRoute allowedRoles={['STUDENT', 'DOCTOR', 'ADMIN']}>
                     <StudentPrescriptions />
                   </ProtectedRoute>
                 }
@@ -241,7 +239,7 @@ export default function App() {
               <Route
                 path="/student/reports"
                 element={
-                  <ProtectedRoute allowedRoles={['STUDENT']}>
+                  <ProtectedRoute allowedRoles={['STUDENT', 'DOCTOR', 'ADMIN']}>
                     <StudentReports />
                   </ProtectedRoute>
                 }
@@ -249,7 +247,7 @@ export default function App() {
               <Route
                 path="/student/assistant"
                 element={
-                  <ProtectedRoute allowedRoles={['STUDENT']}>
+                  <ProtectedRoute allowedRoles={['STUDENT', 'DOCTOR', 'ADMIN']}>
                     <HealthAssistant />
                   </ProtectedRoute>
                 }
@@ -257,7 +255,7 @@ export default function App() {
               <Route
                 path="/student/profile"
                 element={
-                  <ProtectedRoute allowedRoles={['STUDENT']}>
+                  <ProtectedRoute allowedRoles={['STUDENT', 'DOCTOR', 'ADMIN']}>
                     <StudentProfile />
                   </ProtectedRoute>
                 }
@@ -270,5 +268,6 @@ export default function App() {
         </VitalsProvider>
       </AuthProvider>
     </BrowserRouter>
+  </ErrorBoundary>
   );
 }

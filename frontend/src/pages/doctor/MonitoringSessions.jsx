@@ -13,8 +13,8 @@ export const MonitoringSessions = () => {
   const fetchSessions = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/admin/dashboard');
-      setSessions(res.data?.recentSessions || []);
+      const res = await api.get('/sessions');
+      setSessions(res.data || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -26,6 +26,15 @@ export const MonitoringSessions = () => {
     fetchSessions();
   }, []);
 
+  const filteredSessions = sessions.filter((s) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    const fullName = `${s.student?.user?.firstName || ''} ${s.student?.user?.lastName || ''}`.toLowerCase();
+    const roll = (s.student?.rollNumber || '').toLowerCase();
+    const bed = `bed ${s.bedNumber}`.toLowerCase();
+    return fullName.includes(q) || roll.includes(q) || bed.includes(q);
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -34,12 +43,29 @@ export const MonitoringSessions = () => {
             Clinic Monitoring Sessions Archive
           </h2>
           <p className="text-sm text-slate-500">
-            Longitudinal sensor telemetry logs, visit summaries, and triage records
+             Visit summaries and triage records
           </p>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Search Bar */}
+        <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search by student name, roll number, or bed..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-sky-500 font-sans"
+            />
+          </div>
+          <span className="text-xs text-slate-400 font-mono">
+            {filteredSessions.length} sessions logged
+          </span>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead>
@@ -61,14 +87,14 @@ export const MonitoringSessions = () => {
                     Loading sessions...
                   </td>
                 </tr>
-              ) : sessions.length === 0 ? (
+              ) : filteredSessions.length === 0 ? (
                 <tr>
                   <td colSpan="8" className="py-12 text-center text-slate-400">
                     No sessions recorded.
                   </td>
                 </tr>
               ) : (
-                sessions.map((s) => (
+                filteredSessions.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-50/50 transition">
                     <td className="py-3 px-4 font-bold text-slate-800">
                       {s.student?.user?.firstName} {s.student?.user?.lastName}
